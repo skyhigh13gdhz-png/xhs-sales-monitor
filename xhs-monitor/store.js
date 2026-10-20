@@ -228,6 +228,7 @@ function groupByShop(db, groupName, days) {
       priceOriginal: p.priceOriginal ?? null,
       cumulative: d.cumulative ?? null,
       delta: d.delta ?? null,
+      todayDelta: d.todayDelta ?? null,
       hours: d.hours ?? null,
       perHour: d.perHour ?? null,
       perHourReliable: d.perHourReliable !== false,
@@ -249,6 +250,7 @@ function groupByShop(db, groupName, days) {
       products: b.products.sort((x, y) => (y.delta ?? -1) - (x.delta ?? -1)),
       totalCumulative: withData.reduce((a, x) => a + x.cumulative, 0),
       totalDelta: b.products.reduce((a, x) => a + (x.delta || 0), 0),
+      totalToday: sumToday(b.products),
       totalWindow: b.products.reduce((a, x) => a + (x.cumulativeInWindow || 0), 0),
       priceMin: prices.length ? Math.min(...prices) : null,
       priceMax: prices.length ? Math.max(...prices) : null,
@@ -266,6 +268,11 @@ function groupByShop(db, groupName, days) {
     shops,
     totalCumulative: shops.reduce((a, x) => a + x.totalCumulative, 0),
     totalDelta: shops.reduce((a, x) => a + x.totalDelta, 0),
+    // 店铺层用的字段名是 totalToday，不是 todayDelta
+    totalToday: (() => {
+      const vals = shops.map(x => x.totalToday).filter(v => v !== null && v !== undefined);
+      return vals.length ? vals.reduce((a, v) => a + v, 0) : null;
+    })(),
     totalWindow: shops.reduce((a, x) => a + x.totalWindow, 0),
     priceMin: prices.length ? Math.min(...prices) : null,
     priceMax: maxPrices.length ? Math.max(...maxPrices) : null
@@ -291,6 +298,7 @@ function groupCompare(db, days) {
       price: latestPrice.has(p.id) ? latestPrice.get(p.id) : (p.price ?? null),
       cumulative: d.cumulative ?? null,
       delta: d.delta ?? null,
+      todayDelta: d.todayDelta ?? null,
       hours: d.hours ?? null,
       perHourReliable: d.perHourReliable !== false,
       cumulativeInWindow: d.cumulativeInWindow ?? null,
@@ -309,6 +317,7 @@ function groupCompare(db, days) {
       items: items.sort((a, b) => (b.delta ?? -1) - (a.delta ?? -1)),
       totalCumulative: withData.reduce((a, x) => a + x.cumulative, 0),
       totalDelta: items.reduce((a, x) => a + (x.delta || 0), 0),
+      totalToday: sumToday(items),
       totalWindow: items.reduce((a, x) => a + (x.cumulativeInWindow || 0), 0),
       // 只在真的有价格时才计算，避免 Math.min(...[]) 得到 Infinity
       priceMin: prices.length ? Math.min(...prices) : null,
@@ -424,6 +433,47 @@ function computeDelta(db, productId) {
   };
 }
 
+/* ---------- 今日增量 ----------
+   「今日增量」= 最新有效快照 − 今天 00:00 之前最后一次有效快照。
+   这样即使跨过午夜（昨天 21:00 → 今天 09:00），也能得到「今天这一天涨了多少」。
+   - 今天还没采过 → null（不能报 0，那是在撒谎）
+   - 今天才开始监控、没有更早的基线 → 用今天第一条快照当基准
+*/
+function startOfDay(ts) {
+  const d = new Date(ts === undefined ? Date.now() : ts);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+function todayDelta(db, productId, refTs) {
+  const snaps = db.snapshots
+    .filter(s => s.productId === productId && s.ok && s.soldTotal !== null && s.soldTotal !== undefined)
+    .sort((a, b) => new Date(a.ts) - new Date(b.ts));
+  if (!snaps.length) return null;
+
+  const last = snaps[snaps.length - 1];
+  const dayStart = startOfDay(refTs);
+  if (new Date(last.ts).getTime() < dayStart) return null;   // 今天没有采集记录
+
+  // 今天 00:00 之前最后一条作为基准
+  let base = null;
+  for (const s of snaps) {
+    if (new Date(s.ts).getTime() < dayStart) base = s;
+    else break;
+  }
+  if (!base) {
+    // 没有历史基线：用今天第一条，至少不会把累计值当成今日增量
+    base = snaps.find(s => new Date(s.ts).getTime() >= dayStart) || last;
+  }
+  return last.soldTotal - base.soldTotal;
+}
+
+// 汇总今日增量：任一成员有今日数据才求和，全都没有则返回 null（不能报 0）
+function sumToday(list) {
+  const vals = list.map(x => x.todayDelta).filter(v => v !== null && v !== undefined);
+  return vals.length ? vals.reduce((a, v) => a + v, 0) : null;
+}
+
 function stats(db, days) {
   const since = Date.now() - days * 864e5;
   const out = {};
@@ -438,6 +488,7 @@ function stats(db, days) {
     out[p.id] = {
       name: p.name, shop: p.shop, url: p.url, note: p.note,
       ...d,
+      todayDelta: todayDelta(db, p.id),
       windowDays: days,
       cumulativeInWindow,
       failedRuns: failed
@@ -446,7 +497,7 @@ function stats(db, days) {
   return out;
 }
 
-module.exports = { load, save, upsertProduct, addSnapshot, lastValid, computeDelta, stats,
+module.exports = { load, save, upsertProduct, addSnapshot, lastValid, computeDelta, stats, todayDelta, startOfDay,
   listGroups, createGroup, renameGroup, deleteGroup, dissolveGroup, previewDissolve,
   groupCompare, groupByShop, buildPriceIndex, NO_SHOP,
   priceSeries, priceChanges, currentPrice, UNGROUPED, DB_FILE };

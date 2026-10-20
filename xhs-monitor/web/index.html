@@ -262,7 +262,7 @@
 
   <div class="grid2">
     <div class="card">
-      <div class="ch">增量排行（最近一次）</div>
+      <div class="ch" id="rankTitle">今日增量排行</div>
       <div id="rankBox"></div>
     </div>
     <div class="card">
@@ -317,6 +317,12 @@ async function api(path, opts) {
 }
 function fmt(n) { return n == null ? '—' : Number(n).toLocaleString(); }
 function deltaTxt(v) { return v == null ? '—' : (v > 0 ? '+' + v : String(v)); }
+
+// 今日增量：null 表示今天还没采过，不能显示成 0
+function todayCell(v) {
+  if (v === null || v === undefined) return '<span class="dim" title="今天还没有采集记录">—</span>';
+  return deltaTxt(v);
+}
 function shortT(iso) {
   if (!iso) return '—';
   const d = new Date(iso);
@@ -382,9 +388,12 @@ function renderCompare() {
     return;
   }
 
+  // 右侧优先显示「今日增量」（用户主要看这个），今天没数据时退回最近一次增量
+  const useToday = items.some(x => x.totalToday !== null && x.totalToday !== undefined);
   $('#cmpBox').innerHTML = `<div class="cmp">${items.map(x => {
     const w = (x.totalCumulative / maxCum) * 100;
-    const dColor = x.totalDelta > 0 ? 'var(--up)' : (x.totalDelta < 0 ? 'var(--red)' : 'var(--tx3)');
+    const dv = useToday ? x.totalToday : x.totalDelta;
+    const dColor = dv > 0 ? 'var(--up)' : (dv < 0 ? 'var(--red)' : 'var(--tx3)');
     const price = x.priceMin != null
       ? (x.priceMin === x.priceMax ? `¥${x.priceMin}` : `¥${x.priceMin}~¥${x.priceMax}`)
       : '';
@@ -393,11 +402,11 @@ function renderCompare() {
         <span class="cmpshop">${x.count} 个商品${price ? ' · ' + price : ''}</span></div>
       <div class="cmpbar"><div style="height:17px;width:${Math.max(w, 1.5)}%;border-radius:3px;background:var(--teal-l)"></div></div>
       <div class="cmpval">${fmt(x.totalCumulative)}</div>
-      <div class="cmpdelta" style="color:${dColor}">${x.totalDelta == null ? '—' : (x.totalDelta > 0 ? '+' : '') + x.totalDelta}</div>
+      <div class="cmpdelta" style="color:${dColor}">${dv == null ? '—' : (dv > 0 ? '+' : '') + dv}</div>
     </div>`;
   }).join('')}</div>
   <div class="foot" style="border:none;padding-top:8px;margin-top:4px">
-    横向条长度 = 该店在组内的累计销量占比　右侧为店铺累计 / 店铺最近增量
+    横向条长度 = 该店在组内的累计销量占比　右侧为店铺累计 / 店铺${useToday ? '今日增量' : '最近增量'}
   </div>`;
 }
 
@@ -468,11 +477,13 @@ function renderKpis() {
     const key = currentGroup === '__UNGROUPED__' ? '未分组' : currentGroup;
     const g = (state.groupStats || {})[key];
     if (g) {
+      const days = $('#selDays').value;
       $('#kpis').innerHTML = `
         <div class="kpi"><div class="kl">${esc(key)} · 商品数</div><div class="kv">${g.count}<span class="dim" style="font-size:12px;font-weight:400"> / ${g.shopCount} 店</span></div></div>
         <div class="kpi"><div class="kl">组内累计已售</div><div class="kv">${fmt(g.totalCumulative)}</div></div>
-        <div class="kpi"><div class="kl">组内最近增量</div><div class="kv ${g.totalDelta > 0 ? 'pos' : ''}">${deltaTxt(g.totalDelta)}</div></div>
-        <div class="kpi"><div class="kl">近 ${$('#selDays').value} 天</div><div class="kv ${g.totalWindow > 0 ? 'pos' : ''}">${deltaTxt(g.totalWindow)}</div></div>`;
+        <div class="kpi" title="今日增量 = 最新已售 − 今天 0 点前最后一次采集的已售"><div class="kl">今日增量</div><div class="kv ${g.totalToday > 0 ? 'pos' : ''}">${deltaTxt(g.totalToday)}</div></div>
+        <div class="kpi"><div class="kl">近 ${days} 天增量</div><div class="kv ${g.totalWindow > 0 ? 'pos' : ''}">${deltaTxt(g.totalWindow)}</div></div>
+        <div class="kpi" title="相邻两次采集之间的差值，只反映最近这一段"><div class="kl">最近一次增量</div><div class="kv sm" style="color:var(--tx2)">${deltaTxt(g.totalDelta)}</div></div>`;
       return;
     }
   }
@@ -483,17 +494,27 @@ function renderKpis() {
   const realGroups = gs.filter(g => !g.isUngrouped);
   const shopSet = new Set(state.products.map(p => p.shop).filter(Boolean));
 
-  // 找出最近一次增量最大的组，给一个"当前最值得看的地方"
-  let topGroup = null, topDelta = 0;
+  // 找出今日增量最大的组，给一个"当前最值得看的地方"。
+  // 今天还没采到数据时，退回用「最近一次增量」并改标签，不硬报 0。
+  let topGroup = null, topVal = 0, topBasis = 'today';
   for (const g of gs) {
     const gd = (state.groupStats || {})[g.name];
-    if (gd && (gd.totalDelta || 0) > topDelta) { topDelta = gd.totalDelta; topGroup = g.name; }
+    if (gd && (gd.totalToday || 0) > topVal) { topVal = gd.totalToday; topGroup = g.name; }
   }
+  if (!topGroup) {
+    topBasis = 'delta';
+    for (const g of gs) {
+      const gd = (state.groupStats || {})[g.name];
+      if (gd && (gd.totalDelta || 0) > topVal) { topVal = gd.totalDelta; topGroup = g.name; }
+    }
+  }
+  const topLabel = topBasis === 'today' ? '今日增量最大的组' : '最近增量最大的组';
 
   $('#kpis').innerHTML = `
     <div class="kpi"><div class="kl">监控分组</div><div class="kv">${realGroups.length}${gs.some(g => g.isUngrouped) ? '<span class="dim" style="font-size:12px;font-weight:400"> + 未分组</span>' : ''}</div></div>
     <div class="kpi"><div class="kl">监控商品</div><div class="kv">${t.products}<span class="dim" style="font-size:12px;font-weight:400"> / ${shopSet.size} 店</span></div></div>
-    <div class="kpi"><div class="kl">增量最大的组</div><div class="kv sm" style="font-size:14px">${topGroup ? esc(topGroup) + ' <span style="color:var(--up)">+' + topDelta + '</span>' : '<span class="dim">暂无增量</span>'}</div></div>
+    <div class="kpi" title="今日增量 = 最新已售 − 今天 0 点前最后一次采集的已售"><div class="kl">今日增量</div><div class="kv ${t.today > 0 ? 'pos' : ''}">${deltaTxt(t.today)}</div></div>
+    <div class="kpi"><div class="kl">${topLabel}</div><div class="kv sm" style="font-size:14px">${topGroup ? esc(topGroup) + ' <span style="color:var(--up)">+' + topVal + '</span>' : '<span class="dim">暂无增量</span>'}</div></div>
     <div class="kpi"><div class="kl">最近自动采集</div><div class="kv sm">${lastRun}</div></div>`;
 }
 
@@ -550,8 +571,9 @@ function renderGroupOverview() {
       </td>
       <td class="num" data-l="商品">${g.count}<span class="dim"> / ${shops.length} 店</span></td>
       <td class="num" data-l="累计">${d.totalCumulative ? fmt(d.totalCumulative) : (noData ? '<span class="dim">待采集</span>' : '—')}</td>
-      <td class="num ${d.totalDelta > 0 ? 'up' : ''}" data-l="增量">${items.length ? deltaTxt(d.totalDelta) : '—'}</td>
+      <td class="num ${d.totalToday > 0 ? 'up' : ''}" data-l="今日">${items.length ? deltaTxt(d.totalToday) : '—'}</td>
       <td class="num dim hide-m" data-l="窗口">${items.length ? deltaTxt(d.totalWindow) : '—'}</td>
+      <td class="num dim" data-l="最近">${items.length ? deltaTxt(d.totalDelta) : '—'}</td>
       <td class="num dim" data-l="价格">${priceTxt}</td>
       <td class="sh hide-m" data-l="最热">${hottest ? esc(hottest.shop || '') + ' <b style="color:var(--up)">+' + hottest.delta + '</b>' : '<span class="dim">—</span>'}</td>
       <td class="dim" style="white-space:nowrap;text-align:right"><span class="growgo">明细 ›</span></td>
@@ -560,8 +582,8 @@ function renderGroupOverview() {
 
   $('#tableBox').innerHTML = `<table class="ovtable">
     <thead><tr>
-      <th class="num">分组</th><th class="num">商品</th><th class="num">累计已售</th><th class="num">最近增量</th>
-      <th class="num hide-m">窗口增量</th><th class="num">价格</th><th class="hide-m">组内最热</th><th></th>
+      <th class="num">分组</th><th class="num">商品</th><th class="num">累计已售</th><th class="num">今日增量</th>
+      <th class="num hide-m">窗口增量</th><th class="num">最近增量</th><th class="num">价格</th><th class="hide-m">组内最热</th><th></th>
     </tr></thead>
     <tbody>${rows}</tbody></table>
     <div class="foot" style="border:none;padding-top:10px;margin-top:4px">
@@ -635,7 +657,8 @@ function renderProductTable() {
         </div>
       </td>
       <td class="num shopnum" data-l="店铺累计">${sh.totalCumulative ? fmt(sh.totalCumulative) : '—'}</td>
-      <td class="num shopnum ${sh.totalDelta > 0 ? 'up' : ''}" data-l="店铺增量">${deltaTxt(sh.totalDelta)}</td>
+      <td class="num shopnum ${sh.totalToday > 0 ? 'up' : ''}" data-l="今日">${todayCell(sh.totalToday)}</td>
+      <td class="num dim shopnum" data-l="最近">${deltaTxt(sh.totalDelta)}</td>
       <td class="num dim shopnum hide-m" data-l="窗口">${deltaTxt(sh.totalWindow)}</td>
       <td class="num dim shopnum" data-l="价格">${priceTxt || '—'}</td>
       <td class="dim" data-l="记录">${sh.products.reduce((a, x) => a + x.samples, 0)} 次${sh.failCount ? ` <span class="tag p">失败${sh.failCount}</span>` : ''}</td>
@@ -649,7 +672,8 @@ function renderProductTable() {
         <div class="sh">${p.url ? `<a href="${esc(p.url)}" target="_blank" rel="noopener">商品页</a>` : ''}${priceInline(p)}</div>
       </td>
       <td class="num" data-l="累计">${fmt(p.cumulative)}</td>
-      <td class="num ${p.delta > 0 ? 'up' : ''}" data-l="增量">${deltaCell(p)}</td>
+      <td class="num ${p.todayDelta > 0 ? 'up' : ''}" data-l="今日">${todayCell(p.todayDelta)}</td>
+      <td class="num dim" data-l="最近">${deltaCell(p)}</td>
       <td class="num dim hide-m" data-l="窗口">${deltaTxt(p.cumulativeInWindow)}</td>
       <td class="num dim" data-l="件/时">${perHourCell(p)}</td>
       <td class="dim" data-l="样本">${p.samples} 次${p.failedRuns ? ` <span class="tag p">失败${p.failedRuns}</span>` : ''}</td>
@@ -664,7 +688,7 @@ function renderProductTable() {
 
   $('#tableBox').innerHTML = `<table class="shoptable">
     <thead><tr>
-      <th>店铺 / 商品</th><th class="num">累计已售</th><th class="num">最近增量</th>
+      <th>店铺 / 商品</th><th class="num">累计已售</th><th class="num">今日增量</th><th class="num">最近增量</th>
       <th class="num hide-m">窗口增量</th><th class="num">价格</th><th>记录</th><th></th>
     </tr></thead>
     <tbody>${rows}</tbody></table>
@@ -691,9 +715,17 @@ function renderProductTable() {
 }
 
 function renderRank() {
-  const items = state.products.map(p => ({ name: p.name, v: p.delta || 0 }))
+  // 优先按「今日增量」排行；今天还没采到数据时退回「最近一次增量」并改标题
+  const useToday = state.products.some(p => p.todayDelta !== null && p.todayDelta !== undefined);
+  const field = useToday ? 'todayDelta' : 'delta';
+  const items = state.products.map(p => ({ name: p.name, v: p[field] || 0 }))
     .filter(x => x.v !== 0).sort((a, b) => b.v - a.v).slice(0, 8);
-  if (!items.length) { $('#rankBox').innerHTML = '<div class="empty dim" style="padding:26px 0">还没有增量数据<br>采集两次以上才会显示</div>'; return; }
+  const title = $('#rankTitle');
+  if (title) title.textContent = useToday ? '今日增量排行' : '增量排行（最近一次）';
+  if (!items.length) {
+    $('#rankBox').innerHTML = `<div class="empty dim" style="padding:26px 0">${useToday ? '今日还没有增量' : '还没有增量数据'}<br>采集两次以上才会显示</div>`;
+    return;
+  }
   const max = Math.max(...items.map(i => Math.abs(i.v)), 1);
   $('#rankBox').innerHTML = items.map(it => {
     const w = (Math.abs(it.v) / max) * 300;

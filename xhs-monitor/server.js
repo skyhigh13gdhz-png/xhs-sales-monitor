@@ -80,6 +80,7 @@ function overview(days) {
       promos: pr.promos || null,
       cumulative: d.cumulative ?? null,
       delta: d.delta ?? null,
+      todayDelta: d.todayDelta ?? null,
       hours: d.hours ?? null,
       perHour: d.perHour ?? null,
       perHourReliable: d.perHourReliable !== false,
@@ -103,6 +104,10 @@ function overview(days) {
     totals: {
       products: products.length,
       delta: products.reduce((a, p) => a + (p.delta || 0), 0),
+      // 今日增量：任一商品今天采到过就算，全都没采过则为 null（而不是假的 0）
+      today: products.some(p => p.todayDelta !== null && p.todayDelta !== undefined)
+        ? products.reduce((a, p) => a + (p.todayDelta || 0), 0)
+        : null,
       window: products.reduce((a, p) => a + (p.cumulativeInWindow || 0), 0)
     },
     job: { running: job.running, total: job.total, done: job.done, current: job.current, error: job.error,
