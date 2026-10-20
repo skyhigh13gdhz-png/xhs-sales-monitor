@@ -289,8 +289,14 @@
     <div class="card">
       <div class="ch"><span>累计走势</span><span class="chartctl" id="chartCtl"></span></div>
       <div id="chartBox"></div>
-      <div class="foot" style="border:none;padding-top:8px;margin-top:6px">曲线为页面公开「已售」累计值，非真实订单量</div>
+      <div class="foot" id="chartFoot" style="border:none;padding-top:8px;margin-top:6px">曲线为页面公开「已售」累计值，非真实订单量</div>
     </div>
+  </div>
+
+  <!-- 周期内销量：回答"这段时间卖了多少"，和累计值互补，周期与累计走势共用 -->
+  <div class="card" id="deltaCard">
+    <div class="ch"><span id="deltaTitle">周期销量走势</span></div>
+    <div id="deltaBox"></div>
   </div>
 
   <div class="card" id="priceCard">
@@ -323,6 +329,7 @@ let wasCollecting = false;   // 用于判断采集「刚刚结束」，好弹一
 let currentGroup = '';   // '' = 全部；组名 = 该组；'__UNGROUPED__' = 未分组
 let chartGroup = '';     // 「全部」视图下选中的分组
 let chartShop = '';      // 累计走势的店铺筛选，'' = 全部店铺
+let chartPeriod = 'day'; // 统计周期：each/day/week/month，两张走势图共用
 
 function toast(msg) {
   const t = $('#toast');
@@ -626,7 +633,9 @@ function deltaCell(p) {
       : '<span class="dim">—</span>';
   }
   const sign = p.delta > 0 ? '+' : '';
-  return `${sign}${p.delta}${p.suspicious ? ' <span class="tag">回退</span>' : ''}`;
+  // 负数多半是平台在日切剔除退款，不是采集出错，措辞别吓人
+  return `${sign}${p.delta}` +
+    (p.suspicious ? ' <span class="tag" title="本次采集的数字比上次小，通常是平台剔除退款/取消单">修正</span>' : '');
 }
 
 function priceInline(p) {
@@ -853,6 +862,7 @@ async function renderChart() {
     if (!realGroups.length) {
       box.innerHTML = '<div class="empty dim" style="padding:26px 0">添加商品后显示走势</div>';
       ctl.innerHTML = '';
+      renderDelta([]);
       return;
     }
     if (!chartGroup || !realGroups.some(g => g.name === chartGroup)) chartGroup = pickTopGroup(realGroups);
@@ -863,22 +873,26 @@ async function renderChart() {
   if (!gd || !gd.shops.length) {
     box.innerHTML = '<div class="empty dim" style="padding:26px 0">该分组下还没有商品</div>';
     ctl.innerHTML = '';
+    renderDelta([]);
     return;
   }
 
   const shopNames = gd.shops.map(s => s.shop);
   if (chartShop && !shopNames.includes(chartShop)) chartShop = '';
 
-  // 控件：「全部」多一个分组下拉（不含"全部"选项），两个视图都有店铺下拉
+  // 控件：「全部」多一个分组下拉（不含"全部"选项）；周期和店铺两张走势图共用
   ctl.innerHTML =
     (!currentGroup
       ? `<select id="selChartGroup" title="分组">${realGroups.map(g =>
           `<option value="${esc(g.name)}" ${g.name === groupKey ? 'selected' : ''}>${esc(g.name)}</option>`).join('')}</select>`
       : '') +
     `<select id="selChartShop" title="店铺"><option value="">全部店铺</option>${shopNames.map(n =>
-      `<option value="${esc(n)}" ${n === chartShop ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>`;
+      `<option value="${esc(n)}" ${n === chartShop ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>` +
+    `<select id="selPeriod" title="统计周期">${ChartKit.PERIODS.map(p =>
+      `<option value="${p}" ${p === chartPeriod ? 'selected' : ''}>${ChartKit.PERIOD_TEXT[p]}</option>`).join('')}</select>`;
 
-  const d = await api('/api/chart?days=30').catch(() => null);
+  // 周/月要看更长的窗口，否则只有一两个点
+  const d = await api('/api/chart?days=' + ChartKit.periodDays(chartPeriod)).catch(() => null);
   const sm = d ? (d.series || {}) : {};
 
   const series = [];
@@ -906,24 +920,72 @@ async function renderChart() {
     });
   }
 
-  const usable = series.filter(s => s.points && s.points.length);
+  // 按周期聚合：每个周期只留一个点（取该周期内最后一次采集的累计值）
+  const usable = series
+    .map(s => ({ ...s, points: ChartKit.cumulativeByPeriod(s.points, chartPeriod) }))
+    .filter(s => s.points.length);
+
+  const fmtX = t => ChartKit.fmtBucket(t, chartPeriod);
   if (!usable.length) {
-    box.innerHTML = `<div class="empty"><b>还在等第二次采集</b>
-      累计走势至少需要两条记录才能连线<br>
+    box.innerHTML = `<div class="empty"><b>还没有${ChartKit.PERIOD_TEXT[chartPeriod]}数据</b>
+      该分组下还没有可绘制的记录<br>
       <span style="font-size:11px">自动采集会按设定时间运行</span></div>`;
   } else {
     const maxPts = Math.max(...usable.map(s => s.points.length));
-    const svg = ChartKit.lineSvg(usable);
+    const svg = ChartKit.lineSvg(usable, { values: true, fmtX });
     box.innerHTML = `<div class="legend">${ChartKit.legend(usable)}</div>` +
       (svg || '') +
       (maxPts < 2 ? `<div class="foot" style="border:none;padding-top:8px;margin-top:4px">
-        目前每个序列只有 1 个点${usable.length > 1 ? '' : '（一条基线）'}，再采一次就能连成线</div>` : '');
+        目前每个序列只有 1 个${ChartKit.PERIOD_TEXT[chartPeriod]}的点${usable.length > 1 ? '' : '（一条基线）'}，再过一个周期就能连成线</div>` : '');
   }
+
+  // 口径要写清楚：点位不是原始采集点，而是按周期聚合后的
+  const cf = $('#chartFoot');
+  if (cf) cf.textContent = `按${ChartKit.PERIOD_TEXT[chartPeriod]}取点（周期内取最后一次采集）；曲线为页面公开「已售」累计值，非真实订单量`;
+
+  // 周期销量走势用未聚合的原始点，自己按周期算增量
+  renderDelta(series);
 
   const g1 = $('#selChartGroup');
   if (g1) g1.onchange = () => { chartGroup = g1.value; chartShop = ''; renderChart(); };
   const g2 = $('#selChartShop');
   if (g2) g2.onchange = () => { chartShop = g2.value; renderChart(); };
+  const g3 = $('#selPeriod');
+  if (g3) g3.onchange = () => { chartPeriod = g3.value; renderChart(); };
+}
+
+/* ---------- 周期销量走势：这段时间内卖了多少（增量），与累计值互补 ---------- */
+function renderDelta(series) {
+  const card = $('#deltaCard'), box = $('#deltaBox');
+  if (!card || !box) return;
+
+  const usable = series
+    .map(s => ({ ...s, points: ChartKit.deltaByPeriod(s.points, chartPeriod) }))
+    .filter(s => s.points.length);
+
+  const title = $('#deltaTitle');
+  if (title) title.textContent = `周期销量走势 · ${ChartKit.PERIOD_TEXT[chartPeriod]}`;
+
+  if (!usable.length) {
+    box.innerHTML = `<div class="empty"><b>还看不出${ChartKit.PERIOD_TEXT[chartPeriod]}的销量</b>
+      增量需要相邻两个周期都有数据才能算<br>
+      <span style="font-size:11px">第一个周期只能当基线，无法算出它卖了多少</span></div>`;
+    return;
+  }
+
+  const svg = ChartKit.lineSvg(usable, {
+    values: true,
+    fmtX: t => ChartKit.fmtBucket(t, chartPeriod),
+    // 增量一般是小整数，直接取整并带符号，比"1.2万"直观
+    fmtV: v => (v > 0 ? '+' : '') + String(Math.round(v))
+  });
+  const total = usable.reduce((a, s) => a + s.points.reduce((x, p) => x + p.v, 0), 0);
+  box.innerHTML = `<div class="legend">${ChartKit.legend(usable)}</div>` + (svg || '') +
+    `<div class="foot" style="border:none;padding-top:8px;margin-top:6px">
+      每个点 = 该${ChartKit.PERIOD_TEXT[chartPeriod]}区间内新增的销量（本期累计 − 上期累计）
+      ${usable.length === 1 ? `　区间合计 ${Math.round(total)}` : ''}
+      　平台会在日切剔除退款，数字小幅回退时这里会出现负值，属正常修正
+    </div>`;
 }
 
 /* ---------- 实际卖价走势：组内所有商品放进一张阶梯图 ---------- */
