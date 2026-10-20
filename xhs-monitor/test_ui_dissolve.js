@@ -15,6 +15,15 @@ const seed = JSON.parse(fs.readFileSync(TMP_DB, 'utf8'));
 seed.groups = ['备用组'];
 fs.writeFileSync(TMP_DB, JSON.stringify(seed, null, 2));
 
+// 期望值从夹具现算：这个测试借真实数据当素材，写死数字会随用户新增商品而失效
+const liveProducts = seed.products.filter(x => !x.archived);
+const BASE_PROD = liveProducts.length;
+const BASE_SNAP = seed.snapshots.length;
+const groupProds = name => liveProducts.filter(x => (x.group || '') === name);
+const IPAD = groupProds('iPad电容笔');
+const IPAD_PROD = IPAD.length;
+const IPAD_SNAP = IPAD.reduce((a, x) => a + seed.snapshots.filter(s2 => s2.productId === x.id).length, 0);
+
 let server = null;
 function startServer() {
   server = spawn(process.execPath, [path.join(__dirname, 'server.js')], {
@@ -151,8 +160,8 @@ function cleanup() {
     await p.locator('#finalCancel').click();
     await p.waitForTimeout(800);
     const r = await (await fetch(BASE + '/api/state')).json();
-    if (r.totals.products !== 2) throw new Error('商品数变成 ' + r.totals.products);
-    return '商品仍是 2 个';
+    if (r.totals.products !== BASE_PROD) throw new Error(`商品数 ${r.totals.products}，应为 ${BASE_PROD}`);
+    return `商品仍是 ${BASE_PROD} 个`;
   });
 
   console.log('\n[改选未分组：数据全保留]');
@@ -163,20 +172,23 @@ function cleanup() {
     await p.locator('#cfOk').click();
     await p.waitForTimeout(1600);
     const r = await (await fetch(BASE + '/api/state')).json();
-    if (r.totals.products !== 2) throw new Error('商品被删了：' + r.totals.products);
+    if (r.totals.products !== BASE_PROD) throw new Error(`商品数 ${r.totals.products}，应为 ${BASE_PROD}（不该被删）`);
     const un = r.groups.find(g => g.isUngrouped);
     if (!un || un.count < 1) throw new Error('未分组里没有商品：' + JSON.stringify(r.groups));
-    return `商品 2 个，未分组 ${un.count} 个`;
+    return `商品 ${BASE_PROD} 个，未分组 ${un.count} 个`;
   });
   await check('历史快照未丢', async () => {
     const r = await (await fetch(BASE + '/api/state')).json();
     const snapTotal = r.products.reduce((a, x) => a + (x.snapTotal || 0), 0);
-    if (snapTotal !== 7) throw new Error('快照总数 ' + snapTotal + '，应为 7');
+    if (snapTotal !== BASE_SNAP) throw new Error(`快照总数 ${snapTotal}，应为 ${BASE_SNAP}`);
     return snapTotal + ' 条';
   });
 
   console.log('\n[真删除：验证数据确实消失]');
-  await check('对 iPad电容笔 执行彻底删除', async () => {
+  if (!IPAD_PROD) {
+    console.log('  ! 夹具里没有「iPad电容笔」组的商品，跳过真删除检查');
+  }
+  if (IPAD_PROD) await check('对 iPad电容笔 执行彻底删除', async () => {
     await openGroupDissolve('iPad电容笔');
     await p.locator('#dgTarget').selectOption('DELETE');
     await p.waitForTimeout(300);
@@ -185,13 +197,15 @@ function cleanup() {
     await p.locator('#finalOk').click();
     await p.waitForTimeout(1800);
     const r = await (await fetch(BASE + '/api/state')).json();
-    if (r.totals.products !== 1) throw new Error('剩余商品数 ' + r.totals.products + '，应为 1');
-    return '商品从 2 变 1';
+    const want = BASE_PROD - IPAD_PROD;
+    if (r.totals.products !== want) throw new Error(`剩余商品数 ${r.totals.products}，应为 ${want}`);
+    return `商品从 ${BASE_PROD} 变 ${want}`;
   });
   await check('被删商品的快照也消失', async () => {
     const r = await (await fetch(BASE + '/api/state')).json();
     const snapTotal = r.products.reduce((a, x) => a + (x.snapTotal || 0), 0);
-    if (snapTotal !== 2) throw new Error('快照总数 ' + snapTotal + '，应为 2（猫猫盲盒的）');
+    const want = BASE_SNAP - IPAD_SNAP;
+    if (snapTotal !== want) throw new Error(`快照总数 ${snapTotal}，应为 ${want}`);
     return snapTotal + ' 条';
   });
   await check('分组本身消失', async () => {

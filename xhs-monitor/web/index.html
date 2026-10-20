@@ -224,6 +224,27 @@
     .growname{font-size:14px;margin-bottom:2px}
     .mbox{padding:18px 16px}
   }
+
+  /* 图表控件与图例 */
+  .chartctl{display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+  .chartctl select{width:auto;max-width:190px;padding:3px 8px;font-size:12px}
+  .legend{display:flex;flex-wrap:wrap;gap:10px 14px;margin:2px 0 10px;font-size:11px;color:var(--tx2)}
+  .legend .lg{display:inline-flex;align-items:center;gap:5px;max-width:100%;overflow-wrap:break-word}
+  .legend .lg i{width:9px;height:9px;border-radius:2px;flex:0 0 auto;display:inline-block}
+  .legend .lgnote{color:var(--tx3);font-weight:400}
+
+  /* 分层排行 */
+  .rkrow{display:flex;align-items:center;gap:10px;padding:5px 0;cursor:default}
+  .rkrow.clickable{cursor:pointer;border-radius:6px}
+  .rkrow.clickable:hover{background:var(--bg)}
+  .rkname{flex:0 0 112px;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .rkbar{flex:1 1 auto;min-width:0}
+  .rkbar>div{height:15px;border-radius:3px}
+  .rkval{flex:0 0 52px;text-align:right;font-size:12px;font-variant-numeric:tabular-nums}
+  .rkcaret{flex:0 0 10px;font-size:10px;color:var(--tx3)}
+  .rksub .rkrow{padding-left:16px}
+  .rksub .rkname{flex:0 0 96px;font-size:11.5px;color:var(--tx2)}
+  .rksub .rkbar>div{height:11px;opacity:.85}
 </style>
 </head>
 <body>
@@ -266,7 +287,7 @@
       <div id="rankBox"></div>
     </div>
     <div class="card">
-      <div class="ch"><span id="chartName">累计销量走势</span></div>
+      <div class="ch"><span>累计走势</span><span class="chartctl" id="chartCtl"></span></div>
       <div id="chartBox"></div>
       <div class="foot" style="border:none;padding-top:8px;margin-top:6px">曲线为页面公开「已售」累计值，非真实订单量</div>
     </div>
@@ -294,12 +315,14 @@
 <div class="modal" id="modal"><div class="mbox" id="mbox"></div></div>
 <div class="toast" id="toast"></div>
 
+<script src="chartkit.js"></script>
 <script>
 const $ = s => document.querySelector(s);
-let state = null, chartId = null, autoTimer = null;
+let state = null, autoTimer = null;
 let wasCollecting = false;   // 用于判断采集「刚刚结束」，好弹一条完成提示
 let currentGroup = '';   // '' = 全部；组名 = 该组；'__UNGROUPED__' = 未分组
-let priceTargetId = null;
+let chartGroup = '';     // 「全部」视图下选中的分组
+let chartShop = '';      // 累计走势的店铺筛选，'' = 全部店铺
 
 function toast(msg) {
   const t = $('#toast');
@@ -714,223 +737,275 @@ function renderProductTable() {
   });
 }
 
+/* ---------- 今日增量排行：分组 → 店铺 →（组内）商品 ---------- */
+let rankOpen = '';   // 'g:组名' 或 's:组名|店铺名'，同一时刻只展开一个
+
+function barRow(o) {
+  const v = o.val;
+  const pct = Math.min(100, (Math.abs(v == null ? 0 : v) / (o.max || 1)) * 100);
+  const color = v == null ? 'var(--tx3)' : (v < 0 ? 'var(--red)' : 'var(--teal-l)');
+  const txt = v == null ? '—' : ((v > 0 ? '+' : '') + v);
+  return `<div class="rkrow ${o.clickable ? 'clickable' : ''}" ${o.key ? `data-rk="${esc(o.key)}"` : ''} title="${esc(o.title || o.label)}">
+    <span class="rkcaret">${o.caret || ''}</span>
+    <span class="rkname">${esc(o.label)}</span>
+    <span class="rkbar"><div style="width:${Math.max(pct, 1.5)}%;background:${color}"></div></span>
+    <span class="rkval">${txt}</span>
+  </div>`;
+}
+
+const shortProd = n => ChartKit.shortName(n, 9);
+
 function renderRank() {
-  // 优先按「今日增量」排行；今天还没采到数据时退回「最近一次增量」并改标题
   const useToday = state.products.some(p => p.todayDelta !== null && p.todayDelta !== undefined);
-  const field = useToday ? 'todayDelta' : 'delta';
-  const items = state.products.map(p => ({ name: p.name, v: p[field] || 0 }))
-    .filter(x => x.v !== 0).sort((a, b) => b.v - a.v).slice(0, 8);
   const title = $('#rankTitle');
   if (title) title.textContent = useToday ? '今日增量排行' : '增量排行（最近一次）';
-  if (!items.length) {
-    $('#rankBox').innerHTML = `<div class="empty dim" style="padding:26px 0">${useToday ? '今日还没有增量' : '还没有增量数据'}<br>采集两次以上才会显示</div>`;
+  const pickG = g => useToday ? g.totalToday : g.totalDelta;
+  const pickS = s => useToday ? s.totalToday : s.totalDelta;
+  const pickP = p => useToday ? p.todayDelta : p.delta;
+  const box = $('#rankBox');
+  const emptyHtml = `<div class="empty dim" style="padding:26px 0">${useToday ? '今日还没有增量' : '还没有增量数据'}<br>采集两次以上才会显示</div>`;
+
+  // 组内：先按店铺，点店铺再展开该店商品
+  if (currentGroup) {
+    const key = currentGroup === '__UNGROUPED__' ? '未分组' : currentGroup;
+    const g = (state.byShop || {})[key];
+    if (!g || !g.shops.length) { box.innerHTML = emptyHtml; return; }
+
+    const shops = g.shops.map(sh => ({ ...sh, val: pickS(sh) }))
+      .sort((a, b) => (b.val ?? -1e9) - (a.val ?? -1e9));
+    const max = Math.max(...shops.map(x => Math.abs(x.val ?? 0)), 1);
+
+    box.innerHTML = shops.map(sh => {
+      const ck = 's:' + key + '|' + sh.shop;
+      const open = rankOpen === ck;
+      const row = barRow({
+        label: sh.shop, val: sh.val, max,
+        caret: sh.count > 1 ? (open ? '▾' : '▸') : '',
+        clickable: sh.count > 1, key: ck,
+        title: `${sh.shop} · ${sh.count} 个商品`
+      });
+      if (!open || sh.count < 2) return row;
+      const prods = sh.products.map(p => ({ ...p, val: pickP(p) }))
+        .sort((a, b) => (b.val ?? -1e9) - (a.val ?? -1e9));
+      const pmax = Math.max(...prods.map(x => Math.abs(x.val ?? 0)), 1);
+      return row + `<div class="rksub">${prods.map(p =>
+        barRow({ label: shortProd(p.name), val: p.val, max: pmax, title: p.name })).join('')}</div>`;
+    }).join('');
+    bindRankClicks();
     return;
   }
-  const max = Math.max(...items.map(i => Math.abs(i.v)), 1);
-  $('#rankBox').innerHTML = items.map(it => {
-    const w = (Math.abs(it.v) / max) * 300;
-    const color = it.v < 0 ? 'var(--red)' : 'var(--teal-l)';
-    return `<div style="display:flex;align-items:center;gap:10px;padding:5px 0">
-      <div style="flex:0 0 108px;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(it.name)}">${esc(it.name)}</div>
-      <div style="flex:1 1 auto"><div style="height:15px;width:${Math.max(w,2)}px;border-radius:3px;background:${color}"></div></div>
-      <div style="flex:0 0 52px;text-align:right;font-size:12px;font-variant-numeric:tabular-nums">${deltaTxt(it.v)}</div>
-    </div>`;
+
+  // 全部：先按分组，点分组再展开该组店铺
+  const groups = (state.groups || []).filter(g => g.count > 0).map(g => {
+    const key = g.isUngrouped ? '未分组' : g.name;
+    const st = (state.groupStats || {})[key] || {};
+    return { key, name: key, val: pickG(st), count: g.count, shops: ((state.byShop || {})[key] || {}).shops || [] };
+  }).sort((a, b) => (b.val ?? -1e9) - (a.val ?? -1e9));
+
+  if (!groups.length) { box.innerHTML = emptyHtml; return; }
+  const max = Math.max(...groups.map(g => Math.abs(g.val ?? 0)), 1);
+
+  box.innerHTML = groups.map(g => {
+    const ck = 'g:' + g.key;
+    const open = rankOpen === ck;
+    const row = barRow({
+      label: g.name, val: g.val, max,
+      caret: open ? '▾' : '▸', clickable: true, key: ck,
+      title: `${g.name} · ${g.count} 个商品`
+    });
+    if (!open) return row;
+    const shops = g.shops.map(sh => ({ ...sh, val: pickS(sh) }))
+      .sort((a, b) => (b.val ?? -1e9) - (a.val ?? -1e9));
+    const smax = Math.max(...shops.map(x => Math.abs(x.val ?? 0)), 1);
+    return row + `<div class="rksub">${shops.map(sh =>
+      barRow({ label: sh.shop, val: sh.val, max: smax, title: `${sh.shop} · ${sh.count} 个商品` })).join('')}</div>`;
   }).join('');
+  bindRankClicks();
+}
+
+function bindRankClicks() {
+  $('#rankBox').querySelectorAll('.rkrow[data-rk]').forEach(el => {
+    el.onclick = () => {
+      const k = el.dataset.rk;
+      rankOpen = rankOpen === k ? '' : k;
+      renderRank();
+    };
+  });
+}
+
+/* ---------- 累计走势：多店铺 / 多商品多折线 ---------- */
+function pickTopGroup(groups) {
+  // 默认看「今日增量最多」的组；今天都没数据时退回最近增量
+  const val = (g, f) => { const st = (state.groupStats || {})[g.name] || {}; const v = st[f]; return v == null ? -1 : v; };
+  const byToday = [...groups].sort((a, b) => val(b, 'totalToday') - val(a, 'totalToday'));
+  if (val(byToday[0], 'totalToday') > 0) return byToday[0].name;
+  const byLast = [...groups].sort((a, b) => val(b, 'totalDelta') - val(a, 'totalDelta'));
+  return byLast[0].name;
 }
 
 async function renderChart() {
-  const ps = visibleProducts();
-  if (!ps.length) { $('#chartBox').innerHTML = '<div class="empty dim" style="padding:26px 0">添加商品后显示走势</div>'; $('#chartName').textContent = '累计销量走势'; return; }
-  if (!ps.find(p => p.id === chartId)) chartId = ps[0].id;
-  const p = ps.find(x => x.id === chartId);
-  $('#chartName').innerHTML = `累计走势 · ${esc(p.name)} <select id="selChart" style="width:auto;max-width:160px;padding:3px 8px;font-size:12px">${
-    ps.map(x => `<option value="${esc(x.id)}" ${x.id === chartId ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>`;
-  const d = await api(`/api/chart?days=30&id=${encodeURIComponent(chartId)}`).catch(() => null);
-  const series = d ? (d.series[chartId] || []) : [];
-  if (series.length >= 2) {
-    $('#chartBox').innerHTML = svgChart(series);
-  } else if (series.length === 1) {
-    const sc = state.schedule;
-    const nextHint = sc.enabled && sc.nextRunText
-      ? `下次自动采集：<b>${esc(sc.nextRunText)}</b>`
-      : '自动采集未开启，可点右上角 ⏰ 开启';
-    $('#chartBox').innerHTML = `<div class="empty">
-      <b>目前只有 1 条基线记录</b>
-      基线：<b>${fmt(series[0].v)}</b>　记录于 ${esc(shortT(series[0].t))}<br>
-      <span style="font-size:11px">增量需要对比两次记录，再采一次即可算出</span><br>
-      ${nextHint}
-    </div>`;
+  const box = $('#chartBox'), ctl = $('#chartCtl');
+  const realGroups = (state.groups || []).filter(g => !g.isUngrouped && g.count > 0);
+
+  let groupKey;
+  if (currentGroup) {
+    groupKey = currentGroup === '__UNGROUPED__' ? '未分组' : currentGroup;
   } else {
-    $('#chartBox').innerHTML = '<div class="empty dim" style="padding:26px 0">暂无数据</div>';
-  }
-  const sel = $('#selChart');
-  if (sel) sel.onchange = () => { chartId = sel.value; renderChart(); };
-}
-
-function svgChart(series) {
-  const W=680,H=210,PL=54,PR=16,PT=14,PB=30, iw=W-PL-PR, ih=H-PT-PB;
-  const ys=series.map(p=>p.v), minY=Math.min(...ys), maxY=Math.max(...ys);
-  const pad=(maxY-minY)*0.15||Math.max(1,maxY*0.05);
-  const lo=Math.max(0,minY-pad), hi=maxY+pad;
-  const X=i=>PL+(i/(series.length-1))*iw, Y=v=>PT+ih-((v-lo)/(hi-lo||1))*ih;
-  const pts=series.map((p,i)=>`${X(i).toFixed(1)},${Y(p.v).toFixed(1)}`).join(' ');
-  const grid=[lo,(lo+hi)/2,hi].map(t=>{const y=Y(t).toFixed(1);
-    const lbl=Math.abs(t)>=10000?(t/10000).toFixed(1)+'万':Math.round(t);
-    return `<line x1="${PL}" y1="${y}" x2="${W-PR}" y2="${y}" stroke="var(--line)" stroke-width="0.5"/>
-    <text x="${PL-8}" y="${y}" font-size="11" text-anchor="end" dominant-baseline="central" fill="var(--tx3)">${lbl}</text>`;}).join('');
-  const dots=series.map((p,i)=>`<circle cx="${X(i).toFixed(1)}" cy="${Y(p.v).toFixed(1)}" r="2.5" fill="var(--teal)"/>`).join('');
-  const step=Math.max(1,Math.ceil(series.length/7));
-  const xl=series.map((p,i)=>{if(i%step!==0&&i!==series.length-1)return'';
-    const dt=new Date(p.t);return `<text x="${X(i).toFixed(1)}" y="${H-PB+15}" font-size="11" text-anchor="middle" fill="var(--tx3)">${dt.getMonth()+1}/${dt.getDate()}</text>`;}).join('');
-  const area=`${PL},${(PT+ih).toFixed(1)} ${pts} ${(PL+iw).toFixed(1)},${(PT+ih).toFixed(1)}`;
-  return `<svg viewBox="0 0 ${W} ${H}" role="img">
-    <polyline points="${area}" fill="var(--teal-l)" fill-opacity="0.25" stroke="none"/>
-    <polyline points="${pts}" fill="none" stroke="var(--teal)" stroke-width="1.6" stroke-linejoin="round"/>
-    ${grid}${dots}${xl}</svg>`;
-}
-
-/* ---------- 价格阶梯图 ---------- */
-// 只按"变更日"画：值不变时水平延伸，值变化时垂直跳变
-function priceStepSvg(series, changes) {
-  const W = 680, H = 200, PL = 56, PR = 76, PT = 16, PB = 30;
-  const iw = W - PL - PR, ih = H - PT - PB;
-  if (series.length < 1 || changes.length < 1) return null;
-
-  const vals = series.map(x => x.price);
-  let lo = Math.min(...vals), hi = Math.max(...vals);
-  if (hi === lo) { lo = Math.max(0, lo - lo * 0.08 || lo - 1); hi = hi + (hi - lo || 1); }
-  const pad = (hi - lo) * 0.18;
-  lo = Math.max(0, lo - pad); hi = hi + pad;
-
-  const t0 = new Date(series[0].ts).getTime();
-  const tEnd = new Date(series[series.length - 1].ts).getTime();
-  const span = Math.max(tEnd - t0, 1);
-  const X = t => PL + ((t - t0) / span) * iw;
-  const Y = v => PT + ih - ((v - lo) / (hi - lo || 1)) * ih;
-
-  // 构造阶梯路径：每个变更点先水平到该时刻，再垂直跳到新价
-  const pts = [];
-  changes.forEach((c, i) => {
-    const x = X(new Date(c.ts).getTime());
-    if (i === 0) {
-      pts.push([x, Y(c.price)]);
-    } else {
-      pts.push([x, Y(changes[i - 1].price)]);
-      pts.push([x, Y(c.price)]);
+    if (!realGroups.length) {
+      box.innerHTML = '<div class="empty dim" style="padding:26px 0">添加商品后显示走势</div>';
+      ctl.innerHTML = '';
+      return;
     }
-  });
-  const lastX = X(tEnd);
-  const lastP = changes[changes.length - 1].price;
-  if (lastX > pts[pts.length - 1][0]) pts.push([lastX, Y(lastP)]);
+    if (!chartGroup || !realGroups.some(g => g.name === chartGroup)) chartGroup = pickTopGroup(realGroups);
+    groupKey = chartGroup;
+  }
 
-  const line = pts.map(p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
-  const area = `${pts[0][0].toFixed(1)},${(PT + ih).toFixed(1)} ${line} ${lastX.toFixed(1)},${(PT + ih).toFixed(1)}`;
-
-  const grid = [lo, (lo + hi) / 2, hi].map(v => {
-    const y = Y(v).toFixed(1);
-    return `<line x1="${PL}" y1="${y}" x2="${W - PR}" y2="${y}" stroke="var(--line)" stroke-width="0.5"/>
-      <text x="${PL - 8}" y="${y}" font-size="11" text-anchor="end" dominant-baseline="central" fill="var(--tx3)">¥${v.toFixed(v < 100 ? 1 : 0)}</text>`;
-  }).join('');
-
-  const dots = changes.map(c => {
-    const x = X(new Date(c.ts).getTime()), y = Y(c.price);
-    const up = c.delta !== null && c.delta > 0;
-    const color = c.delta === null ? 'var(--teal)' : (up ? 'var(--red)' : 'var(--teal)');
-    const lbl = up ? '↑' : (c.delta !== null && c.delta < 0 ? '↓' : '');
-    return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.5" fill="${color}"/>
-      <text x="${x.toFixed(1)}" y="${(y - 9).toFixed(1)}" font-size="11" text-anchor="middle" fill="${color}" font-weight="500">¥${c.price}${lbl}</text>`;
-  }).join('');
-
-  const step = Math.max(1, Math.ceil(changes.length / 6));
-  const xl = changes.map((c, i) => {
-    if (i % step !== 0 && i !== changes.length - 1) return '';
-    const d = new Date(c.ts);
-    return `<text x="${X(d.getTime()).toFixed(1)}" y="${H - PB + 15}" font-size="11" text-anchor="middle" fill="var(--tx3)">${d.getMonth() + 1}/${d.getDate()}</text>`;
-  }).join('');
-
-  return `<svg viewBox="0 0 ${W} ${H}" role="img">
-    <polyline points="${area}" fill="var(--teal-l)" fill-opacity="0.18" stroke="none"/>
-    <polyline points="${line}" fill="none" stroke="var(--teal)" stroke-width="1.8" stroke-linejoin="miter"/>
-    ${grid}${dots}${xl}</svg>`;
-}
-
-async function renderPrices() {
-  const ps = state.products;
-  if (!ps.length) {
-    $('#priceCard').style.display = 'none';
+  const gd = (state.byShop || {})[groupKey];
+  if (!gd || !gd.shops.length) {
+    box.innerHTML = '<div class="empty dim" style="padding:26px 0">该分组下还没有商品</div>';
+    ctl.innerHTML = '';
     return;
   }
-  $('#priceCard').style.display = '';
 
-  // 选中分组时只看该组
-  const vis = visibleProducts();
-  let target = null;
-  if (priceTargetId) target = vis.find(p => p.id === priceTargetId) || null;
-  // 默认优先选「有价格变更」的商品——那才是最值得看的图
-  if (!target) target = vis.find(p => (p.priceChangeCount || 0) > 1) || null;
-  if (!target) target = vis.find(p => p.price != null) || vis[0];
-  if (!target) { $('#priceCard').style.display = 'none'; return; }
-  priceTargetId = target.id;
+  const shopNames = gd.shops.map(s => s.shop);
+  if (chartShop && !shopNames.includes(chartShop)) chartShop = '';
 
-  const d = await api(`/api/prices?days=90&id=${encodeURIComponent(target.id)}`).catch(() => null);
-  const info = d ? d.prices[target.id] : null;
-  const cur = info ? info.current : {};
-  const changes = info ? info.changes : [];
+  // 控件：「全部」多一个分组下拉（不含"全部"选项），两个视图都有店铺下拉
+  ctl.innerHTML =
+    (!currentGroup
+      ? `<select id="selChartGroup" title="分组">${realGroups.map(g =>
+          `<option value="${esc(g.name)}" ${g.name === groupKey ? 'selected' : ''}>${esc(g.name)}</option>`).join('')}</select>`
+      : '') +
+    `<select id="selChartShop" title="店铺"><option value="">全部店铺</option>${shopNames.map(n =>
+      `<option value="${esc(n)}" ${n === chartShop ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>`;
 
-  const priceTxt = cur.price != null ? `¥${cur.price}` : '—';
-  const origTxt = cur.original != null && cur.discount > 0 ? `划线价 ¥${cur.original}` : '';
-  const discTxt = cur.discount > 0 ? `直降 ¥${cur.discount}` : '';
-  const promoTag = cur.promos && cur.promos.length
-    ? cur.promos.filter(p => p.tag || p.name).map(p => p.tag || p.name).join(' / ')
-    : '';
-  const promoUntil = cur.promos && cur.promos[0] && cur.promos[0].until ? cur.promos[0].until.replace(/^有效期至/, '') : '';
+  const d = await api('/api/chart?days=30').catch(() => null);
+  const sm = d ? (d.series || {}) : {};
 
-  $('#priceTitle').innerHTML = `实际卖价走势 · ${esc(target.name)}
-    <select id="selPriceProd" style="width:auto;max-width:170px;padding:3px 8px;font-size:12px">
-      ${visibleProducts().map(x => `<option value="${esc(x.id)}" ${x.id === target.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}
-    </select>`;
-
-  const head = `<div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:12px">
-    <div style="font-size:26px;font-weight:500;font-variant-numeric:tabular-nums">${priceTxt}</div>
-    <div style="font-size:11px;color:var(--tx2)">
-      ${esc(cur.price != null && cur.discount > 0 ? '到手价' : '售价')}
-      ${origTxt ? ` · <s class="dim">${origTxt}</s>` : ''}
-      ${discTxt ? ` · <span style="color:var(--up)">${discTxt}</span>` : ''}
-    </div>
-    ${promoTag ? `<div class="tag p" style="font-size:10px">${esc(promoTag)}${promoUntil ? ' · 至' + esc(promoUntil) : ''}</div>` : ''}
-    ${cur.since ? `<div class="dim" style="font-size:11px">此价自 ${esc(shortT(cur.since))}${cur.changedDays != null ? `（${cur.changedDays} 天）` : ''}</div>` : ''}
-  </div>`;
-
-  const svg = priceStepSvg(info ? info.series : [], changes);
-  let chart;
-  if (svg) {
-    chart = svg;
-  } else if ((info ? info.series.length : 0) > 0) {
-    chart = '<div class="empty dim" style="padding:22px 0">价格还没有变化过<br><span style="font-size:11px">有变更时会自动记录并画出阶梯图</span></div>';
+  const series = [];
+  let ci = 0;
+  if (chartShop) {
+    const sh = gd.shops.find(s => s.shop === chartShop);
+    if (sh.count === 1) {
+      // 店内只有一个商品：不必重复画汇总线
+      const p = sh.products[0];
+      series.push({ name: sh.shop, points: sm[p.id] || [], color: ChartKit.color(ci++) });
+    } else {
+      sh.products.forEach(p => series.push({
+        name: ChartKit.shortName(p.name, 9), points: sm[p.id] || [], color: ChartKit.color(ci++)
+      }));
+      const sum = ChartKit.sumSeries(sh.products.map(p => sm[p.id] || []));
+      if (sum.length) series.push({ name: '店铺汇总', points: sum, color: 'var(--tx2)' });
+    }
   } else {
-    chart = `<div class="empty"><b>还没有价格记录</b>下次采集开始会记录到手价<br>
-      <span style="font-size:11px">此前采集的只有划线价，为避免假跳变已标记为未采集</span></div>`;
+    // 默认：一家店一条线（店内多商品则求和），店只有 1 个商品时就是那条商品线
+    gd.shops.forEach(sh => {
+      const pts = sh.count === 1
+        ? (sm[sh.products[0].id] || [])
+        : ChartKit.sumSeries(sh.products.map(p => sm[p.id] || []));
+      series.push({ name: sh.shop, points: pts, color: ChartKit.color(ci++) });
+    });
   }
 
-  const changeRows = changes.filter(c => c.delta !== null).map(c => {
-    const up = c.delta > 0;
-    return `<div style="display:flex;gap:10px;font-size:12px;padding:5px 0;border-bottom:.5px solid var(--line)">
-      <span class="dim" style="flex:0 0 92px">${esc(shortT(c.ts))}</span>
-      <span style="flex:0 0 90px">¥${c.from} → <b>¥${c.price}</b></span>
-      <span style="flex:0 0 60px;color:${up ? 'var(--red)' : 'var(--teal)'}">${up ? '↑' : '↓'} ¥${Math.abs(c.delta)}</span>
-      <span class="dim" style="flex:1 1 auto">${c.promos && c.promos[0] ? esc(c.promos[0].tag || c.promos[0].name || '') : ''}</span>
-    </div>`;
-  }).join('');
+  const usable = series.filter(s => s.points && s.points.length);
+  if (!usable.length) {
+    box.innerHTML = `<div class="empty"><b>还在等第二次采集</b>
+      累计走势至少需要两条记录才能连线<br>
+      <span style="font-size:11px">自动采集会按设定时间运行</span></div>`;
+  } else {
+    const maxPts = Math.max(...usable.map(s => s.points.length));
+    const svg = ChartKit.lineSvg(usable);
+    box.innerHTML = `<div class="legend">${ChartKit.legend(usable)}</div>` +
+      (svg || '') +
+      (maxPts < 2 ? `<div class="foot" style="border:none;padding-top:8px;margin-top:4px">
+        目前每个序列只有 1 个点${usable.length > 1 ? '' : '（一条基线）'}，再采一次就能连成线</div>` : '');
+  }
 
-  $('#priceBox').innerHTML = head + chart +
-    (changeRows ? `<div style="margin-top:12px"><div style="font-size:11px;color:var(--tx2);margin-bottom:4px">价格变更记录（${changes.filter(c => c.delta !== null).length} 次）</div>${changeRows}</div>` : '') +
+  const g1 = $('#selChartGroup');
+  if (g1) g1.onchange = () => { chartGroup = g1.value; chartShop = ''; renderChart(); };
+  const g2 = $('#selChartShop');
+  if (g2) g2.onchange = () => { chartShop = g2.value; renderChart(); };
+}
+
+/* ---------- 实际卖价走势：组内所有商品放进一张阶梯图 ---------- */
+async function renderPrices() {
+  const card = $('#priceCard');
+  // 「全部」视图不展示价格走势
+  if (!currentGroup) { card.style.display = 'none'; return; }
+
+  const key = currentGroup === '__UNGROUPED__' ? '未分组' : currentGroup;
+  const gd = (state.byShop || {})[key];
+  if (!gd || !gd.shops.length) { card.style.display = 'none'; return; }
+  card.style.display = '';
+
+  const d = await api('/api/prices?days=90').catch(() => null);
+  const prices = d ? (d.prices || {}) : {};
+
+  const series = [];
+  let ci = 0;
+  for (const sh of gd.shops) {
+    const multi = sh.count > 1;
+    for (const p of sh.products) {
+      const info = prices[p.id];
+      if (!info || !info.series || !info.series.length) continue;
+      // 店内多商品：「店铺·商品短名」；单商品：只显示店铺名，避免名字过长
+      const label = multi
+        ? `${ChartKit.shortName(sh.shop, 6)}·${ChartKit.shortName(p.name, 6)}`
+        : ChartKit.shortName(sh.shop, 12);
+      const cur = info.current && info.current.price != null ? `¥${info.current.price}` : '';
+      series.push({
+        name: label,
+        points: info.series.map(x => ({ t: x.ts, v: x.price })),
+        color: ChartKit.color(ci++),
+        note: cur
+      });
+    }
+  }
+
+  $('#priceTitle').innerHTML = `实际卖价走势 · ${esc(key)}
+    <span class="dim" style="font-weight:400;font-size:11px">${gd.productCount} 个商品 · ${gd.shopCount} 家店铺</span>`;
+
+  if (!series.length) {
+    $('#priceBox').innerHTML = `<div class="empty"><b>还没有价格记录</b>下次采集开始会记录到手价<br>
+      <span style="font-size:11px">此前采集的只有划线价，为避免假跳变已标记为未采集</span></div>`;
+    return;
+  }
+
+  const lasts = series.map(s => s.points[s.points.length - 1].v).filter(v => typeof v === 'number');
+  const min = Math.min(...lasts), max = Math.max(...lasts);
+  const head = `<div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:10px">
+    <div style="font-size:22px;font-weight:500;font-variant-numeric:tabular-nums">${min === max ? `¥${min}` : `¥${min} ~ ¥${max}`}</div>
+    <div style="font-size:11px;color:var(--tx2)">当前到手价${series.length > 1 ? '区间' : ''}</div>
+    <div class="dim" style="font-size:11px">到手价 = 划线价减去商家券/立减后的实付价</div>
+  </div>`;
+
+  const svg = ChartKit.stepSvg(series);
+  let chart;
+  if (svg) chart = svg;
+  else chart = '<div class="empty dim" style="padding:22px 0">价格还没有变化过<br><span style="font-size:11px">有变更时会自动记录并画出阶梯</span></div>';
+
+  // 只有一个序列时才展开变更明细，多个商品时明细太长
+  let changeBlock = '';
+  if (series.length === 1) {
+    const only = gd.shops.flatMap(s => s.products).find(p => prices[p.id] && prices[p.id].series.length);
+    const info = only ? prices[only.id] : null;
+    const rows = (info ? info.changes : []).filter(c => c.delta !== null).map(c => {
+      const up = c.delta > 0;
+      return `<div style="display:flex;gap:10px;font-size:12px;padding:5px 0;border-bottom:.5px solid var(--line)">
+        <span class="dim" style="flex:0 0 92px">${esc(shortT(c.ts))}</span>
+        <span style="flex:0 0 90px">¥${c.from} → <b>¥${c.price}</b></span>
+        <span style="flex:0 0 60px;color:${up ? 'var(--red)' : 'var(--teal)'}">${up ? '↑' : '↓'} ¥${Math.abs(c.delta)}</span>
+        <span class="dim" style="flex:1 1 auto">${c.promos && c.promos[0] ? esc(c.promos[0].tag || c.promos[0].name || '') : ''}</span>
+      </div>`;
+    }).join('');
+    if (rows) changeBlock = `<div style="margin-top:12px"><div style="font-size:11px;color:var(--tx2);margin-bottom:4px">价格变更记录</div>${rows}</div>`;
+  }
+
+  $('#priceBox').innerHTML = head +
+    `<div class="legend">${ChartKit.legend(series)}</div>` + chart + changeBlock +
     `<div class="foot" style="border:none;padding-top:8px;margin-top:6px">
-      阶梯图按变更日绘制：价格不变时为水平线，变更当天垂直跳变。
-      「到手价」= 划线价减去商家券/立减后的实付价，才是商家真正想卖的价。
+      阶梯图按变更日绘制：价格不变时为水平线，变更当天垂直跳变。图例右侧为当前到手价。
     </div>`;
-
-  const sel = $('#selPriceProd');
-  if (sel) sel.onchange = () => { priceTargetId = sel.value; renderPrices(); };
 }
 
 function render() {
