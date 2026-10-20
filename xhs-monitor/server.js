@@ -16,7 +16,10 @@ const NODE_BIN = process.execPath;
 let job = { running: false, total: 0, done: 0, current: '', results: [], startedAt: null, error: null, trigger: 'manual' };
 
 // 自动采集历史（供页面展示）
-const autoLogFile = path.join(__dirname, 'data', 'auto-log.json');
+// 位置跟 schedule.json 一样要可隔离：测试把 XHS_DB 指向临时目录时，日志也写那边去
+const DATA_DIR = process.env.XHS_DATA_DIR
+  || (process.env.XHS_DB ? path.dirname(process.env.XHS_DB) : path.join(__dirname, 'data'));
+const autoLogFile = process.env.XHS_AUTOLOG || path.join(DATA_DIR, 'auto-log.json');
 let autoLog = [];
 try { if (fs.existsSync(autoLogFile)) autoLog = JSON.parse(fs.readFileSync(autoLogFile, 'utf8')); } catch (_) { autoLog = []; }
 function saveAutoLog() {
@@ -94,6 +97,9 @@ function overview(days) {
       lastFail: (db.snapshots.filter(x => x.productId === p.id && !x.ok).sort((a,b)=> new Date(b.ts)-new Date(a.ts))[0] || {}).failReason || null
     };
   });
+  // 上次采集时间 = 最新一条快照的时间（手动、自动都算），比只看定时任务更贴近事实
+  const lastCollectAt = db.snapshots.reduce((a, s) => (!a || s.ts > a) ? s.ts : a, null);
+
   return {
     hasAuth: collect.hasAuth(),
     collecting: job.running,
@@ -101,6 +107,7 @@ function overview(days) {
     groups: store.listGroups(db),
     groupStats: store.groupCompare(db, days),
     byShop,
+    lastCollectAt,
     totals: {
       products: products.length,
       delta: products.reduce((a, p) => a + (p.delta || 0), 0),

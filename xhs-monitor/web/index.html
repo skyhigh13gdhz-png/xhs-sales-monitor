@@ -443,8 +443,10 @@ function renderSchedBar() {
   const gcount = (state.groups || []).filter(g => !g.isUngrouped).length;
   if (gcount) parts.push(`${gcount} 个分组`);
 
+  // 采集节奏：给「上次 / 下次」两个时间点，比列一遍定时时刻更有用
+  const last = state.lastCollectAt ? shortT(state.lastCollectAt) : '暂无';
+  parts.push(`上次采集 <b>${esc(last)}</b>`);
   if (sc.enabled) {
-    parts.push(`自动采集 <b>${esc(sc.times.join(' / '))}</b>`);
     if (sc.nextRunText) parts.push(`下次 <b>${esc(shortT(sc.nextRunText))}</b>`);
   } else {
     parts.push('<b>自动采集已关闭</b>');
@@ -490,10 +492,8 @@ function renderBanner() {
 
 function renderKpis() {
   const t = state.totals;
-  const sc = state.schedule;
   // 副标题由 renderSchedBar 统一生成，这里不再覆盖，避免两者打架
   $('#prodCount').textContent = t.products ? `(${t.products})` : '';
-  const lastRun = sc.lastRunAt ? shortT(sc.lastRunAt) : '待首次运行';
 
   // 选中某个组时，KPI 切换成该组口径
   if (currentGroup) {
@@ -537,8 +537,7 @@ function renderKpis() {
     <div class="kpi"><div class="kl">监控分组</div><div class="kv">${realGroups.length}${gs.some(g => g.isUngrouped) ? '<span class="dim" style="font-size:12px;font-weight:400"> + 未分组</span>' : ''}</div></div>
     <div class="kpi"><div class="kl">监控商品</div><div class="kv">${t.products}<span class="dim" style="font-size:12px;font-weight:400"> / ${shopSet.size} 店</span></div></div>
     <div class="kpi" title="今日增量 = 最新已售 − 今天 0 点前最后一次采集的已售"><div class="kl">今日增量</div><div class="kv ${t.today > 0 ? 'pos' : ''}">${deltaTxt(t.today)}</div></div>
-    <div class="kpi"><div class="kl">${topLabel}</div><div class="kv sm" style="font-size:14px">${topGroup ? esc(topGroup) + ' <span style="color:var(--up)">+' + topVal + '</span>' : '<span class="dim">暂无增量</span>'}</div></div>
-    <div class="kpi"><div class="kl">最近自动采集</div><div class="kv sm">${lastRun}</div></div>`;
+    <div class="kpi"><div class="kl">${topLabel}</div><div class="kv sm" style="font-size:14px">${topGroup ? esc(topGroup) + ' <span style="color:var(--up)">+' + topVal + '</span>' : '<span class="dim">暂无增量</span>'}</div></div>`;
 }
 
 function renderJob() {
