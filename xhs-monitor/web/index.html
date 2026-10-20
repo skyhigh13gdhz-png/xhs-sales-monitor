@@ -244,12 +244,6 @@
   <div class="groupbar" id="groupBar"></div>
   <div class="kpis" id="kpis"></div>
 
-  <div class="card" id="jobCard" style="display:none">
-    <div class="ch">采集进度 <span class="dim" id="jobText"></span></div>
-    <div class="prog"><i id="jobBar" style="width:0%"></i></div>
-    <div class="log" id="jobLog"></div>
-  </div>
-
   <div class="card" id="cmpCard" style="display:none">
     <div class="ch"><span id="cmpTitle">组内对比</span></div>
     <div id="cmpBox"></div>
@@ -283,6 +277,13 @@
     <div id="priceBox"></div>
   </div>
 
+  <!-- 采集进度：属于过程信息，放在主体数据之后，不占首屏 -->
+  <div class="card" id="jobCard" style="display:none">
+    <div class="ch">采集进度 <span class="dim" id="jobText"></span></div>
+    <div class="prog"><i id="jobBar" style="width:0%"></i></div>
+    <div class="log" id="jobLog"></div>
+  </div>
+
   <div class="foot">
     <b>口径说明：</b>「累计已售」是商品页对访客公开展示的数字，<b>不等于真实订单量</b>。退款、平台展示延迟、口径调整、商品链接变更都可能影响数值。
     请仅用于趋势判断，不要作为财务报表或竞品算账依据。<br>
@@ -296,6 +297,7 @@
 <script>
 const $ = s => document.querySelector(s);
 let state = null, chartId = null, autoTimer = null;
+let wasCollecting = false;   // 用于判断采集「刚刚结束」，好弹一条完成提示
 let currentGroup = '';   // '' = 全部；组名 = 该组；'__UNGROUPED__' = 未分组
 let priceTargetId = null;
 
@@ -902,8 +904,22 @@ async function renderPrices() {
 function render() {
   renderBanner(); renderSchedBar(); renderGroupBar(); renderKpis(); renderJob();
   renderCompare(); renderTable(); renderRank(); renderChart(); renderPrices();
+
+  // 采集进度卡在页面底部，结束时给一条短暂提示，避免用户以为没跑完
+  const jb = state.job || {};
+  if (wasCollecting && !state.collecting && (jb.results || []).length) {
+    const ok = jb.results.filter(r => r.ok).length;
+    const bad = jb.results.length - ok;
+    toast(bad
+      ? `采集结束：${ok} 成功，${bad} 失败　明细在页面底部`
+      : `采集完成：${ok} 个商品　明细在页面底部`);
+  }
+  wasCollecting = state.collecting;
+
   $('#btnCollect').disabled = state.collecting;
-  $('#btnCollect').textContent = state.collecting ? '采集中…' : '立即采集';
+  $('#btnCollect').textContent = state.collecting
+    ? (jb.total ? `采集中 ${jb.done}/${jb.total}` : '采集中…')
+    : '立即采集';
 }
 
 async function refresh() {
