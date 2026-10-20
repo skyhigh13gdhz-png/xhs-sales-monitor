@@ -165,7 +165,8 @@ function startCollect(ids, trigger = 'manual', slot = null) {
       const summary = { at: new Date().toISOString(), trigger, slot, total: results.length,
                         ok: okN, failed: results.length - okN,
                         changes: results.filter(r => r.delta != null && r.delta !== 0)
-                          .map(r => `${r.name} +${r.delta}`) };
+                          // 回退（平台剔除退款）时 delta 为负，别写成 "+-14"
+                          .map(r => `${r.name} ${r.delta > 0 ? '+' : ''}${r.delta}`) };
       if (trigger === 'auto') pushAutoLog(summary);
       console.log(`[${trigger === 'auto' ? '自动' : '手动'}] 完成 ${okN}/${results.length}${summary.changes.length ? '，变化: ' + summary.changes.join(', ') : ''}`);
     })

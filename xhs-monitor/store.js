@@ -328,6 +328,29 @@ function groupCompare(db, days) {
   return out;
 }
 
+/*
+数字回退分级。
+背景：平台会在日切时剔除退款/取消单，页面上的「已售」会**真的变小**
+（实测 0 点那次：1857→1778、1661→1647、556→550，降幅 1%~4%）。
+这属于正常修正，如果一律判失败丢弃，0 点的基线就没了，当日销量跟着失真。
+所以小幅回退照常入库并标记，只有大到不像退款的才怀疑链接/口径出问题。
+*/
+const DROP_ABS_FLOOR = 50;    // 小基数商品至少容忍 50 件
+const DROP_RATIO = 0.05;      // 或者 5%，取两者较大
+
+// 0 点后这个窗口内采到的记录，视为"日切后的第一条"，可当日界基点
+const DAYBREAK_WINDOW = 2 * 3600e3;
+
+function classifyDrop(prev, cur) {
+  if (prev === null || prev === undefined || cur === null || cur === undefined) {
+    return { kind: 'none', drop: 0, tolerate: 0 };
+  }
+  const drop = prev - cur;
+  if (drop <= 0) return { kind: 'none', drop: 0, tolerate: 0 };
+  const tolerate = Math.max(DROP_ABS_FLOOR, prev * DROP_RATIO);
+  return { kind: drop <= tolerate ? 'correction' : 'suspicious', drop, tolerate };
+}
+
 function addSnapshot(db, productId, fields) {
   const snap = {
     id: `${productId}|${Date.now()}`,
@@ -337,6 +360,8 @@ function addSnapshot(db, productId, fields) {
     source: fields.source || 'manual',
     ok: fields.ok !== false,
     failReason: fields.failReason || null,
+    // 本次采集相对上一条的回退幅度（平台修正退款时为正常现象，不是失败）
+    correctedDrop: fields.correctedDrop || null,
     // price = 到手价（有优惠时是券后实付），priceOriginal = 划线价
     price: fields.price === undefined ? null : fields.price,
     priceOriginal: fields.priceOriginal === undefined ? null : fields.priceOriginal,
@@ -455,15 +480,29 @@ function todayDelta(db, productId, refTs) {
   const dayStart = startOfDay(refTs);
   if (new Date(last.ts).getTime() < dayStart) return null;   // 今天没有采集记录
 
-  // 今天 00:00 之前最后一条作为基准
-  let base = null;
-  for (const s of snaps) {
-    if (new Date(s.ts).getTime() < dayStart) base = s;
-    else break;
+  const tOf = s => new Date(s.ts).getTime();
+  const today = snaps.filter(s => tOf(s) >= dayStart);
+
+  /*
+  日界基点的选取直接决定"今日销量"准不准，这里有个坑：
+  平台会在 0 点前后剔除退款，「已售」会掉一截（实测掉 1%~4%）。
+  - 若仍拿"昨天最后一条"当基点，这一截掉落会被算成今天的负销量，明显偏低；
+  - 若拿"今天第一条"当基点，一旦那天首采是 09:00，0–9 点的销量就整段漏掉。
+  所以分情况：0 点附近有采集记录就优先用它（同口径、又不漏量），
+  否则退回"昨天最后一条"（老逻辑），没有其它更好选择时再退到今天第一条。
+  */
+  const daybreak = today.find(s => tOf(s) - dayStart <= DAYBREAK_WINDOW);
+
+  let base = daybreak || null;
+  if (!base) {
+    for (const s of snaps) {
+      if (tOf(s) < dayStart) base = s;
+      else break;
+    }
   }
   if (!base) {
-    // 没有历史基线：用今天第一条，至少不会把累计值当成今日增量
-    base = snaps.find(s => new Date(s.ts).getTime() >= dayStart) || last;
+    // 完全没有历史基线：用今天第一条，至少不会把累计值当成今日增量
+    base = today[0] || last;
   }
   return last.soldTotal - base.soldTotal;
 }
@@ -497,7 +536,7 @@ function stats(db, days) {
   return out;
 }
 
-module.exports = { load, save, upsertProduct, addSnapshot, lastValid, computeDelta, stats, todayDelta, startOfDay,
+module.exports = { load, save, upsertProduct, addSnapshot, lastValid, computeDelta, stats, todayDelta, startOfDay, classifyDrop, DROP_ABS_FLOOR, DROP_RATIO, DAYBREAK_WINDOW,
   listGroups, createGroup, renameGroup, deleteGroup, dissolveGroup, previewDissolve,
   groupCompare, groupByShop, buildPriceIndex, NO_SHOP,
   priceSeries, priceChanges, currentPrice, UNGROUPED, DB_FILE };

@@ -103,11 +103,17 @@ async function run(products, opts = {}) {
 
       const prev = store.lastValid(db, p.id);
       let delta = null;
-      if (r.ok) {
-        if (prev && prev.soldTotal !== null && r.soldTotal < prev.soldTotal) {
+      if (r.ok && prev && prev.soldTotal !== null && r.soldTotal !== null) {
+        const cls = store.classifyDrop(prev.soldTotal, r.soldTotal);
+        if (cls.kind === 'suspicious') {
+          // 降幅大到不像退款：更可能是链接变了或口径换了，仍然判失败
           r.ok = false;
-          r.failReason = `数字回退（${prev.soldTotal} → ${r.soldTotal}），疑似链接变更或口径调整`;
-        } else if (prev && prev.soldTotal !== null) {
+          r.failReason = `数字回退过大（${prev.soldTotal} → ${r.soldTotal}，降 ${cls.drop}），疑似链接变更或口径调整`;
+        } else if (cls.kind === 'correction') {
+          // 平台修正（多半是剔除退款）：照常入库，只是这次增量是负的
+          r.correctedDrop = cls.drop;
+          delta = r.soldTotal - prev.soldTotal;
+        } else {
           delta = r.soldTotal - prev.soldTotal;
         }
       }
@@ -117,6 +123,7 @@ async function run(products, opts = {}) {
         source: r.via && r.via.startsWith('browser') ? 'auto-browser' : 'auto-api',
         ok: r.ok,
         failReason: r.failReason,
+        correctedDrop: r.correctedDrop || null,
         price: r.price ?? null,
         priceOriginal: r.priceOriginal ?? null,
         priceDiscount: r.priceDiscount ?? null,

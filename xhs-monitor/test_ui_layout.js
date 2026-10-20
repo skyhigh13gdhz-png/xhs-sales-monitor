@@ -1,7 +1,43 @@
+/*
+布局测试必须跑干净的临时实例：
+它断言"常驻 banner 不显示"，而真实实例一旦有商品采集失败就会挂 banner、
+把整页往下推，导致布局断言误判为回归（出过一次，排查半天发现是采集状态）。
+素材用真实库拷贝（只读），写操作只落临时库。
+*/
 const { chromium } = require('playwright');
-const BASE = process.argv[2] || 'http://127.0.0.1:7788';
+const { spawn } = require('child_process');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
+const BASE = process.argv[2] || null;
+const PORT = 7807;
+const B = BASE || ('http://127.0.0.1:' + PORT);
+const TMP_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'xhs-layout.'));
+const TMP_DB = path.join(TMP_DIR, 'db.json');
+fs.copyFileSync(path.join(__dirname, 'data', 'snapshots.json'), TMP_DB);
+
+let server = null;
+async function startServer() {
+  if (BASE) return;                      // 显式传了地址就不自己起
+  server = spawn(process.execPath, [path.join(__dirname, 'server.js')], {
+    cwd: __dirname,
+    env: { ...process.env, XHS_DB: TMP_DB, XHS_DATA_DIR: TMP_DIR, XHS_SCHEDULE: path.join(TMP_DIR, 'schedule.json'), XHS_AUTOLOG: path.join(TMP_DIR, 'auto-log.json'), PORT: String(PORT) },
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+  server.stdout.on('data', () => {});
+  server.stderr.on('data', () => {});
+  const t0 = Date.now();
+  for (;;) {
+    try { const r = await fetch(B + '/api/state'); if (r.ok) return; } catch (_) {}
+    if (Date.now() - t0 > 20000) throw new Error('临时服务启动超时');
+    await new Promise(r => setTimeout(r, 300));
+  }
+}
+async function stopServer() { if (server) { try { server.kill(); } catch (_) {} } }
 
 (async () => {
+  await startServer();
   const errors = [];
   const b = await chromium.launch({ channel: 'chrome', headless: true, args: ['--no-sandbox'] });
   const ctx = await b.newContext({ viewport: { width: 1280, height: 900 }, locale: 'zh-CN' });
@@ -9,7 +45,7 @@ const BASE = process.argv[2] || 'http://127.0.0.1:7788';
   p.on('pageerror', e => errors.push('PAGEERROR: ' + e.message));
   p.on('console', m => { if (m.type() === 'error') errors.push('CONSOLE: ' + m.text().slice(0, 160)); });
 
-  await p.goto(BASE + '/', { waitUntil: 'networkidle', timeout: 30000 });
+  await p.goto(B + '/', { waitUntil: 'networkidle', timeout: 30000 });
   await p.waitForTimeout(2200);
 
   let pass = 0, fail = 0;
@@ -97,5 +133,10 @@ const BASE = process.argv[2] || 'http://127.0.0.1:7788';
 
   await b.close();
   console.log(`\n结果: ${pass} 通过, ${fail} 失败${errors.length ? '，' + errors.length + ' 个JS错误' : ''}\n`);
+  await stopServer();
   process.exit(fail || errors.length ? 1 : 0);
-})();
+})().catch(async e => {
+  console.error('测试异常：', e.message);
+  await stopServer();
+  process.exit(1);
+});

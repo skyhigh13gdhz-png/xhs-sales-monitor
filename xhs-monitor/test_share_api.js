@@ -3,8 +3,34 @@
 用临时库 + 临时端口，绝不碰 data/snapshots.json
 */
 const fs = require('fs');
-const BASE = 'http://127.0.0.1:7792';
-const DB = process.env.SHARE_TEST_DB;
+const os = require('os');
+const path = require('path');
+const { spawn } = require('child_process');
+
+// 自启临时实例：原来依赖外部 7792 + 手动传 SHARE_TEST_DB，缺一个就静默跑不起来
+const PORT = 7808;
+const BASE = 'http://127.0.0.1:' + PORT;
+const TMP_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'xhs-shareapi.'));
+const DB = path.join(TMP_DIR, 'db.json');
+fs.writeFileSync(DB, JSON.stringify({ products: [], snapshots: [], groups: [] }, null, 2));
+
+let server = null;
+async function startServer() {
+  server = spawn(process.execPath, [path.join(__dirname, 'server.js')], {
+    cwd: __dirname,
+    env: { ...process.env, XHS_DB: DB, XHS_DATA_DIR: TMP_DIR, XHS_SCHEDULE: path.join(TMP_DIR, 'schedule.json'), XHS_AUTOLOG: path.join(TMP_DIR, 'auto-log.json'), PORT: String(PORT) },
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+  server.stdout.on('data', () => {});
+  server.stderr.on('data', () => {});
+  const t0 = Date.now();
+  for (;;) {
+    try { const r = await fetch(BASE + '/api/state'); if (r.ok) return; } catch (_) {}
+    if (Date.now() - t0 > 20000) throw new Error('临时服务启动超时');
+    await new Promise(r => setTimeout(r, 300));
+  }
+}
+async function stopServer() { if (server) { try { server.kill(); } catch (_) {} } }
 
 const RAW = '【小红书】猫咪磁吸风铃冰箱贴 😆 nvJRp7r2K6 😆 https://xhslink.com/m/4T71eJQIwpB 点击链接或者复制本条信息打开【小红书app】查看 CZ6526';
 
@@ -21,6 +47,7 @@ async function post(path, body) {
 }
 
 (async () => {
+  await startServer();
   console.log('\n[整段分享文案添加商品]');
   const r1 = await post('/api/products', { raw: RAW });
 
@@ -67,5 +94,10 @@ async function post(path, body) {
   t('快照带上了到手价', snaps.length === 1 && typeof snaps[0].price === 'number', snaps[0] && snaps[0].price);
 
   console.log(`\n结果: ${pass} 通过, ${fail} 失败\n`);
+  await stopServer();
   process.exit(fail ? 1 : 0);
-})();
+})().catch(async e => {
+  console.error('测试异常：', e.message);
+  await stopServer();
+  process.exit(1);
+});
