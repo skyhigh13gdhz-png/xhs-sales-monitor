@@ -585,8 +585,10 @@ function renderGroupOverview() {
     const d = (state.groupStats || {})[key] || {};
     const items = d.items || [];
     const shops = [...new Set(items.map(x => x.shop).filter(Boolean))];
-    // 组内最热的商品，用于一眼看出是哪个
-    const hottest = items.filter(x => (x.delta || 0) > 0).sort((a, b) => b.delta - a.delta)[0];
+    // 今日组内最热：按「今日增量」排名，日内谁在跑才是用户真正关心的
+    // 不用最近增量——它只是相邻两次采集的差，跨过 0 点就会被日切修正干扰
+    const hottest = items.filter(x => (x.todayDelta || 0) > 0)
+      .sort((a, b) => b.todayDelta - a.todayDelta)[0];
     const noData = items.length > 0 && items.every(x => x.cumulative === null);
 
     const priceTxt = (d.priceMin != null && d.priceMax != null)
@@ -604,7 +606,11 @@ function renderGroupOverview() {
       <td class="num dim hide-m" data-l="窗口">${items.length ? deltaTxt(d.totalWindow) : '—'}</td>
       <td class="num dim" data-l="最近">${items.length ? deltaTxt(d.totalDelta) : '—'}</td>
       <td class="num dim" data-l="价格">${priceTxt}</td>
-      <td class="sh hide-m" data-l="最热">${hottest ? esc(hottest.shop || '') + ' <b style="color:var(--up)">+' + hottest.delta + '</b>' : '<span class="dim">—</span>'}</td>
+      <td class="sh hide-m" data-l="今日最热">${!items.length
+        ? '<span class="dim">—</span>'
+        : (hottest
+            ? `<span title="今日 +${hottest.todayDelta} · ${esc(hottest.name || '')}">${esc(hottest.shop || hottest.name || '')} <b style="color:var(--up)">+${hottest.todayDelta}</b></span>`
+            : '<span class="dim" title="今天这些商品都还没有新增销量">今日无增长</span>')}</td>
       <td class="dim" style="white-space:nowrap;text-align:right"><span class="growgo">明细 ›</span></td>
     </tr>`;
   }).join('');
@@ -612,7 +618,7 @@ function renderGroupOverview() {
   $('#tableBox').innerHTML = `<table class="ovtable">
     <thead><tr>
       <th class="num">分组</th><th class="num">商品</th><th class="num">累计已售</th><th class="num">今日增量</th>
-      <th class="num hide-m">窗口增量</th><th class="num">最近增量</th><th class="num">价格</th><th class="hide-m">组内最热</th><th></th>
+      <th class="num hide-m">窗口增量</th><th class="num">最近增量</th><th class="num">价格</th><th class="hide-m">今日组内最热</th><th></th>
     </tr></thead>
     <tbody>${rows}</tbody></table>
     <div class="foot" style="border:none;padding-top:10px;margin-top:4px">

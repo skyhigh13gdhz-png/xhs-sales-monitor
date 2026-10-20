@@ -7,7 +7,12 @@ const BASE = process.argv[2] || 'http://127.0.0.1:7788';
   const ctx = await b.newContext({ viewport: { width: 1280, height: 950 }, locale: 'zh-CN' });
   const p = await ctx.newPage();
   p.on('pageerror', e => errors.push('PAGEERROR: ' + e.message));
-  p.on('console', m => { if (m.type() === 'error') errors.push('CONSOLE: ' + m.text().slice(0, 150)); });
+  p.on('console', m => {
+    if (m.type() !== 'error') return;
+    // favicon 之类的 404 不算页面逻辑错误，其它界面测试也是这么过滤的
+    if (/Failed to load resource/.test(m.text())) return;
+    errors.push('CONSOLE: ' + m.text().slice(0, 150));
+  });
 
   await p.goto(BASE + '/', { waitUntil: 'networkidle', timeout: 30000 });
   await p.waitForTimeout(2500);
