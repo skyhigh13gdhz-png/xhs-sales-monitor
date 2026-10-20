@@ -1,6 +1,15 @@
 const fs = require('fs');
 const path = require('path');
-const scheduleFile = path.join(__dirname, 'data', 'schedule.json');
+
+/*
+配置文件的位置必须可被测试隔离。
+测试会设置 XHS_DB 指向临时库；这时把 schedule.json 一并放进那个临时目录，
+避免测试动到用户的真实定时设置（曾经真的被删过一次）。
+优先顺序：XHS_SCHEDULE > XHS_DATA_DIR > XHS_DB 所在目录 > 项目 data/
+*/
+const DATA_DIR = process.env.XHS_DATA_DIR
+  || (process.env.XHS_DB ? path.dirname(process.env.XHS_DB) : path.join(__dirname, 'data'));
+const scheduleFile = process.env.XHS_SCHEDULE || path.join(DATA_DIR, 'schedule.json');
 
 const DEFAULTS = {
   enabled: true,

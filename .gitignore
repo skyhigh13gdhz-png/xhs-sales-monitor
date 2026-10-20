@@ -4,6 +4,7 @@ xhs-monitor/data/snapshots.json
 xhs-monitor/data/snapshots.json.*
 xhs-monitor/data/auto-log.json
 xhs-monitor/data/schedule.json
+xhs-monitor/data/schedule.json.*
 
 # ---------- 登录态：等同于凭据，绝不能入库 ----------
 xhs-monitor/auth/

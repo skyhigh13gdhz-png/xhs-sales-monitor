@@ -1,10 +1,19 @@
 const assert = require('assert');
-const sched = require('./scheduler');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
+// 必须先把配置目录指向临时目录，再 require——否则动的是用户真实的 data/schedule.json。
+// 这个测试以前会把真实文件改名再删掉，用户的定时设置因此丢过两次。
+const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'xhs-sched.'));
+process.env.XHS_DATA_DIR = TMP;
+
+const sched = require('./scheduler');
 const SF = sched.scheduleFile;
-if (fs.existsSync(SF)) fs.renameSync(SF, SF + '.bak-' + Date.now());
+if (!SF.startsWith(TMP)) {
+  console.error('✗ 隔离失败，scheduleFile 不在临时目录：' + SF);
+  process.exit(1);
+}
 
 let pass = 0, fail = 0;
 const t = (name, fn) => {
@@ -120,11 +129,8 @@ t('非法格式被拒', () => {
   assert.ok(!re.test('24:00') && !re.test('9:30') && !re.test('09:60') && !re.test('abc'));
 });
 
-// 清理
-if (fs.existsSync(SF)) fs.unlinkSync(SF);
-for (const f of fs.readdirSync(path.dirname(SF))) {
-  if (f.includes('schedule.json.bak-')) fs.unlinkSync(path.join(path.dirname(SF), f));
-}
+// 清理：只删临时目录，绝不碰项目里的 data/
+try { fs.rmSync(TMP, { recursive: true, force: true }); } catch (_) {}
 
 console.log(`\n结果: ${pass} 通过, ${fail} 失败\n`);
 process.exit(fail ? 1 : 0);

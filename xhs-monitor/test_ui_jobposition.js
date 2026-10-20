@@ -3,7 +3,35 @@
 用临时实例（7793）+ 临时库，不碰真实数据
 */
 const { chromium } = require('playwright');
-const BASE = 'http://127.0.0.1:7793';
+const { spawn } = require('child_process');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
+// 自启临时实例：素材用真实库的一份拷贝（要真采集才有进度），但写操作只落在临时库
+const PORT = 7793;
+const BASE = 'http://127.0.0.1:' + PORT;
+const TMP_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'xhs-jobpos.'));
+const TMP_DB = path.join(TMP_DIR, 'db.json');
+fs.copyFileSync(path.join(__dirname, 'data', 'snapshots.json'), TMP_DB);
+
+let server = null;
+async function startServer() {
+  server = spawn(process.execPath, [path.join(__dirname, 'server.js')], {
+    cwd: __dirname,
+    env: { ...process.env, XHS_DB: TMP_DB, XHS_DATA_DIR: TMP_DIR, XHS_SCHEDULE: path.join(TMP_DIR, 'schedule.json'), XHS_AUTOLOG: path.join(TMP_DIR, 'auto-log.json'), PORT: String(PORT) },
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+  server.stdout.on('data', () => {});
+  server.stderr.on('data', () => {});
+  const t0 = Date.now();
+  for (;;) {
+    try { const r = await fetch(BASE + '/api/state'); if (r.ok) return; } catch (_) {}
+    if (Date.now() - t0 > 20000) throw new Error('临时服务启动超时');
+    await new Promise(r => setTimeout(r, 300));
+  }
+}
+async function stopServer() { if (server) { try { server.kill(); } catch (_) {} } }
 
 let pass = 0, fail = 0;
 async function check(name, fn) {
@@ -12,8 +40,9 @@ async function check(name, fn) {
 }
 
 (async () => {
+  await startServer();
   const errors = [];
-  const b = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
+  const b = await chromium.launch({ channel: 'chrome', headless: true, args: ['--no-sandbox'] });
   const ctx = await b.newContext({ viewport: { width: 1280, height: 900 }, locale: 'zh-CN' });
   const p = await ctx.newPage();
   p.setDefaultTimeout(8000);
@@ -97,5 +126,10 @@ async function check(name, fn) {
   await b.close();
   console.log('\nJS 错误: ' + (errors.length ? errors.join('; ') : '无'));
   console.log(`结果: ${pass} 通过, ${fail} 失败\n`);
+  await stopServer();
   process.exit(fail || errors.length ? 1 : 0);
-})();
+})().catch(async e => {
+  console.error('测试异常：', e.message);
+  await stopServer();
+  process.exit(1);
+});

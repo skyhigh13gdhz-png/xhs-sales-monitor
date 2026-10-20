@@ -1,6 +1,38 @@
+/*
+接口端到端测试。
+必须跑在临时库 + 独立端口上：本测试一开始就清空商品表再灌夹具，
+直连 7788 会把用户的真实监控数据删光（2026-10-20 真的出过一次）。
+所以这里自己拉起一个临时实例，绝不连生产端口。
+*/
+const { spawn } = require('child_process');
 const fs = require('fs');
-const DB = '/Users/weizhenliang/WorkBuddy/2026-10-19-11-31-05/xhs-monitor/data/snapshots.json';
-const B = 'http://127.0.0.1:7788';
+const os = require('os');
+const path = require('path');
+
+const PORT = 7805;
+const TMP_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'xhs-api.'));
+const TMP_DB = path.join(TMP_DIR, 'db.json');
+fs.writeFileSync(TMP_DB, JSON.stringify({ products: [], snapshots: [], groups: [] }, null, 2));
+
+const B = 'http://127.0.0.1:' + PORT;
+
+let server = null;
+async function startServer() {
+  server = spawn(process.execPath, [path.join(__dirname, 'server.js')], {
+    cwd: __dirname,
+    env: { ...process.env, XHS_DB: TMP_DB, XHS_DATA_DIR: TMP_DIR, XHS_SCHEDULE: path.join(TMP_DIR, 'schedule.json'), XHS_AUTOLOG: path.join(TMP_DIR, 'auto-log.json'), PORT: String(PORT) },
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+  server.stdout.on('data', () => {});
+  server.stderr.on('data', () => {});
+  const t0 = Date.now();
+  for (;;) {
+    try { const r = await fetch(B + '/api/state'); if (r.ok) return; } catch (_) {}
+    if (Date.now() - t0 > 20000) throw new Error('临时服务启动超时');
+    await new Promise(r => setTimeout(r, 300));
+  }
+}
+async function stopServer() { if (server) { try { server.kill(); } catch (_) {} } }
 
 async function post(path, obj) {
   const r = await fetch(B + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(obj) });
@@ -12,6 +44,9 @@ async function get(path) {
 }
 
 (async () => {
+  await startServer();
+  console.log(`\n[临时实例 ${PORT}，库 ${TMP_DB}]`);
+
   console.log('\n[准备：清空并创建两个测试商品]');
   await post('/api/products', { name: '__清理__', url: 'https://example.com/cleanup' });
   const cur = await get('/api/state');
@@ -97,5 +132,10 @@ async function get(path) {
   t('相同URL被拒绝', dup.status === 400 && /已经在监控/.test(dup.body.error), dup.body);
 
   console.log(`\n结果: ${pass} 通过, ${fail} 失败\n`);
+  await stopServer();
   process.exit(fail ? 1 : 0);
-})();
+})().catch(async e => {
+  console.error('测试异常：', e.message);
+  await stopServer();
+  process.exit(1);
+});

@@ -3,7 +3,7 @@ const BASE = process.argv[2] || 'http://127.0.0.1:7788';
 
 (async () => {
   const errors = [];
-  const b = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
+  const b = await chromium.launch({ channel: 'chrome', headless: true, args: ['--no-sandbox'] });
   const ctx = await b.newContext({ viewport: { width: 1280, height: 950 }, locale: 'zh-CN' });
   const p = await ctx.newPage();
   p.on('pageerror', e => errors.push('PAGEERROR: ' + e.message));

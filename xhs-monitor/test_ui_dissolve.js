@@ -53,7 +53,7 @@ function cleanup() {
   await startServer();
 
   const errors = [];
-  const b = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
+  const b = await chromium.launch({ channel: 'chrome', headless: true, args: ['--no-sandbox'] });
   const ctx = await b.newContext({ viewport: { width: 1280, height: 1000 }, locale: 'zh-CN' });
   const p = await ctx.newPage();
   p.on('pageerror', e => errors.push('PAGEERROR: ' + e.message));

@@ -3,7 +3,7 @@ const BASE = process.argv[2] || 'http://127.0.0.1:7788';
 
 (async () => {
   const errors = [];
-  const b = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
+  const b = await chromium.launch({ channel: 'chrome', headless: true, args: ['--no-sandbox'] });
   const ctx = await b.newContext({ viewport: { width: 1280, height: 900 }, locale: 'zh-CN' });
   const p = await ctx.newPage();
   p.on('pageerror', e => errors.push('PAGEERROR: ' + e.message));
@@ -36,11 +36,13 @@ const BASE = process.argv[2] || 'http://127.0.0.1:7788';
     if (!/\d+ 个商品/.test(t)) throw new Error('无商品数：' + t);
     return t.replace(/\s+/g, ' ').slice(0, 80);
   });
-  await check('副标题含自动采集时间', async () => {
+  // 副标题改过版：不再罗列全部定时时刻，改为「上次采集 / 下次」两个时间点
+  await check('副标题含上次采集时间', async () => {
     const t = await p.locator('#subLine').innerText();
-    if (!t.includes('自动采集')) throw new Error('无自动采集信息');
-    if (!/\d{2}:\d{2}/.test(t)) throw new Error('无时间点');
-    return '含 ' + (t.match(/\d{2}:\d{2}(\s*\/\s*\d{2}:\d{2})*/) || [''])[0];
+    if (!t.includes('上次采集')) throw new Error('无上次采集信息：' + t);
+    const seg = t.split('上次采集')[1] || '';
+    if (!/\d/.test(seg) && !/暂无/.test(seg)) throw new Error('上次采集没有时间：' + t);
+    return '上次采集' + seg.slice(0, 20);
   });
   await check('副标题含下次执行时间', async () => {
     const t = await p.locator('#subLine').innerText();

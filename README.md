@@ -55,12 +55,23 @@ mkdir -p ../backups && cp data/snapshots.json "../backups/snapshots-$(date +%Y%m
 
 **提交信息**用 `feat / fix / docs / test / refactor / chore` 前缀，一句话说清改了什么、为什么。
 
-**改动前先跑测试**（每套 30 秒内）：
+**改动前后都跑测试**，统一入口：
 
 ```bash
 cd xhs-monitor
-node test_core.js && node test_groups_explicit.js && node test_price.js && node test_share_text.js
+bash run_tests.sh          # 全部
+bash run_tests.sh core     # 只要不需要浏览器的那批（约 20 秒）
 ```
+
+`run_tests.sh` 会先把 `data/snapshots.json`、`data/schedule.json` 备份到 `backups/<时间戳>/`，
+跑完再比对 MD5，一旦发现被测试改动就打印还原命令。
+
+> 为什么强制走这个入口：早期 `test_api.js` 直连 7788 生产实例，开头就清空商品表，
+> 把真实监控数据删光过一次（2026-10-20）。现在所有测试都自带临时库 + 独立端口，
+> 但备份与校验仍固化在脚本里，不靠记性。
+
+界面测试用系统 Chrome（本机没装 Playwright 自带的 chromium），
+启动参数统一是 `chromium.launch({ channel: 'chrome' })`。
 
 ## 已知边界
 

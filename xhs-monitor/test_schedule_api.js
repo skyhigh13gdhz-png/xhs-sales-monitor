@@ -1,5 +1,38 @@
+/*
+调度接口测试。
+同样必须跑临时实例：它会 POST /api/schedule 改写定时配置，
+直连 7788 会把用户的采集时刻表冲掉（出过事故）。
+*/
 const assert = require('assert');
-const B = 'http://127.0.0.1:7788';
+const { spawn } = require('child_process');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
+const PORT = 7806;
+const TMP_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'xhs-sched.'));
+const TMP_DB = path.join(TMP_DIR, 'db.json');
+fs.writeFileSync(TMP_DB, JSON.stringify({ products: [], snapshots: [], groups: [] }, null, 2));
+
+const B = 'http://127.0.0.1:' + PORT;
+
+let server = null;
+async function startServer() {
+  server = spawn(process.execPath, [path.join(__dirname, 'server.js')], {
+    cwd: __dirname,
+    env: { ...process.env, XHS_DB: TMP_DB, XHS_DATA_DIR: TMP_DIR, XHS_SCHEDULE: path.join(TMP_DIR, 'schedule.json'), XHS_AUTOLOG: path.join(TMP_DIR, 'auto-log.json'), PORT: String(PORT) },
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+  server.stdout.on('data', () => {});
+  server.stderr.on('data', () => {});
+  const t0 = Date.now();
+  for (;;) {
+    try { const r = await fetch(B + '/api/state'); if (r.ok) return; } catch (_) {}
+    if (Date.now() - t0 > 20000) throw new Error('临时服务启动超时');
+    await new Promise(r => setTimeout(r, 300));
+  }
+}
+async function stopServer() { if (server) { try { server.kill(); } catch (_) {} } }
 
 async function get(p) { const r = await fetch(B + p); return { status: r.status, body: await r.json().catch(() => ({})) }; }
 async function post(p, o) {
@@ -14,6 +47,9 @@ const t = async (name, fn) => {
 };
 
 (async () => {
+  await startServer();
+  console.log(`\n[临时实例 ${PORT}]`);
+
   console.log('\n[读取调度]');
   await t('GET /api/schedule 返回默认开启', async () => {
     const r = await get('/api/schedule');
@@ -81,5 +117,10 @@ const t = async (name, fn) => {
   });
 
   console.log(`\n结果: ${pass} 通过, ${fail} 失败\n`);
+  await stopServer();
   process.exit(fail ? 1 : 0);
-})();
+})().catch(async e => {
+  console.error('测试异常：', e.message);
+  await stopServer();
+  process.exit(1);
+});

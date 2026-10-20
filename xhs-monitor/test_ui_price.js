@@ -52,7 +52,7 @@ async function check(name, fn) {
   }
 
   const errors = [];
-  const b = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
+  const b = await chromium.launch({ channel: 'chrome', headless: true, args: ['--no-sandbox'] });
   const p = await (await b.newContext({ viewport: { width: 1280, height: 1100 }, locale: 'zh-CN' })).newPage();
   p.setDefaultTimeout(8000);
   p.on('pageerror', e => errors.push(e.message));
