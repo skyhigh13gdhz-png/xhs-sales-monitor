@@ -184,20 +184,39 @@ const routes = {
 
   'POST /api/products': async (req, res) => {
     const b = await readBody(req);
-    const url = String(b.url || '').trim();
-    if (!/^https?:\/\/\S+$/.test(url)) throw new Error('商品链接无效，需以 http(s):// 开头');
+    // 兼容三种粘贴方式：纯商品链接 / 分享短链 / 小红书 App 的整段分享文案
+    const raw = String(b.raw || b.url || '').trim();
+    if (!raw) throw new Error('请粘贴商品链接或整段分享文案');
+
+    const parsed = api.parseShareText(raw);
+    const url = parsed.url;
+    if (!url) {
+      throw new Error('没有找到链接。请粘贴带链接的分享文案，或直接粘贴商品链接（xhslink.com/… 或 xiaohongshu.com/goods-detail/…）');
+    }
 
     const existing = store.load().products;
     if (existing.some(p => p.url === url)) throw new Error('这个商品链接已经在监控列表里了');
 
     // 只给链接就自动解析名称与店铺
     let auto = null;
+    let itemId = null;
     if (b.autoFill !== false) {
-      try { auto = await api.fetchItem(await api.resolveItemId(url)); }
-      catch (e) { auto = null; }
+      try {
+        itemId = await api.resolveItemId(url);
+        auto = await api.fetchItem(itemId);
+      } catch (e) {
+        auto = null;
+      }
     }
 
-    const name = String(b.name || '').trim() || (auto && auto.title) || '';
+    // 按商品ID去重：同一个商品用短链、长链、分享文案分别添加时链接串不同，但指向同一商品
+    if (itemId) {
+      const dup = existing.find(p => p.itemId === itemId);
+      if (dup) throw new Error(`这个商品已经在监控列表里了（${String(dup.name).slice(0, 24)}）`);
+    }
+
+    // 名称优先级：手动填写 > 接口返回 > 分享文案里解析出的
+    const name = String(b.name || '').trim() || (auto && auto.title) || parsed.title || '';
     if (!name) {
       throw new Error('无法自动识别商品名称，请手动填写；或确认该商品页是否正常展示');
     }
@@ -213,7 +232,8 @@ const routes = {
       note: String(b.note || '').trim(),
       shopId: auto ? auto.shopId : undefined,
       shopUrl: auto ? auto.shopUrl : undefined,
-      price: auto ? auto.price : undefined
+      price: auto ? auto.price : undefined,
+      itemId: itemId || undefined
     });
 
     // 首次添加即建立基线，省得用户再采一次

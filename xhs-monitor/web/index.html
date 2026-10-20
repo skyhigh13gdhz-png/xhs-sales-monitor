@@ -145,11 +145,12 @@
 
   .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(0,1fr));gap:14px}
 
-  input,select{
+  input,select,textarea{
     font:inherit;font-size:13px;width:100%;padding:8px 11px;
     border:.5px solid var(--line2);border-radius:8px;background:var(--bg);color:var(--tx)
   }
-  input:focus,select:focus{outline:none;border-color:var(--accent)}
+  textarea{resize:vertical;min-height:62px;line-height:1.6;font-family:inherit}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
   label{display:block;font-size:11px;color:var(--tx2);margin-bottom:4px}
   .formrow{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:11px;margin-bottom:12px}
 
@@ -195,6 +196,10 @@
   .slot{display:flex;gap:8px;align-items:center;margin-bottom:8px}
   .slot input{flex:0 0 130px}
   .hintbox{font-size:11px;color:var(--tx3);line-height:1.7;background:var(--bg);border:.5px solid var(--line);border-radius:8px;padding:10px 12px;margin-top:4px}
+  .parsehint{font-size:11px;line-height:1.6;margin-top:6px;min-height:0;overflow-wrap:break-word}
+  .parsehint:empty{display:none}
+  .parsehint .good{color:var(--teal);font-weight:500}
+  .parsehint .bad{color:var(--red);font-weight:500}
 
   @media (max-width:640px) {
     body{padding:12px 10px 70px}
@@ -1302,14 +1307,22 @@ function openModal(html) { $('#mbox').innerHTML = html; $('#modal').classList.ad
 function closeModal() { $('#modal').classList.remove('on'); }
 $('#modal').onclick = e => { if (e.target.id === 'modal') closeModal(); };
 
+// 从任意文本里抠出第一个链接。字符集与后端 parseShareText 保持一致，
+// 关键是排除中文，避免把紧跟在链接后面的汉字吞进去。
+function pickUrl(text) {
+  const m = String(text || '').match(/https?:\/\/[A-Za-z0-9\-._~:/?#[\]@!$&'()*+,;=%]+/);
+  return m ? m[0].replace(/[.,;:!?)]+$/, '') : '';
+}
+
 function openAdd(presetGroup) {
   const preselect = presetGroup || (currentGroup && currentGroup !== '__UNGROUPED__' ? currentGroup : '');
   const gs = (state.groups || []).filter(g => !g.isUngrouped).map(g => g.name);
   openModal(`
     <div class="ch">添加监控商品</div>
-    <label>商品链接（必填）</label>
-    <input id="aUrl" placeholder="粘贴小红书商品链接或分享短链" style="margin-bottom:12px">
-    <div class="hintbox">只需链接即可。商品名称、店铺名称、价格会自动识别，并立即建立销量基线。<br>支持短链形式：xhslink.com/m/xxxx</div>
+    <label>商品链接 / 分享文案（必填）</label>
+    <textarea id="aUrl" placeholder="直接粘贴小红书 App 分享出来的一整段话即可，例如：&#10;【小红书】猫咪磁吸风铃冰箱贴 😆 nvJRp7r2K6 😆 https://xhslink.com/m/xxxx 点击链接或者复制本条信息打开【小红书app】查看 CZ6526"></textarea>
+    <div id="aParse" class="parsehint"></div>
+    <div class="hintbox">名称、店铺、价格会自动识别，并立即建立销量基线。<br>纯链接、短链、整段分享文案都支持。</div>
     <div class="formrow" style="margin-top:12px;margin-bottom:0">
       <div><label>归到哪个组</label>
         <select id="aGroup">
@@ -1329,16 +1342,34 @@ function openAdd(presetGroup) {
     </div>`);
   $('#aCancel').onclick = closeModal;
   setTimeout(() => $('#aUrl').focus(), 60);
+
+  // 粘贴即识别：先告诉用户链接有没有被认出来，别等点了添加才报错
+  const refreshParse = () => {
+    const raw = $('#aUrl').value.trim();
+    const box = $('#aParse');
+    if (!box) return;
+    if (!raw) { box.innerHTML = ''; return; }
+    const u = pickUrl(raw);
+    if (!u) {
+      box.innerHTML = '<span class="bad">✗ 没找到链接</span>　需要 https:// 开头的链接，或整段分享文案';
+      return;
+    }
+    const short = u.replace(/^https?:\/\//, '');
+    box.innerHTML = `<span class="good">✓ 已识别链接</span>　${esc(short.length > 50 ? short.slice(0, 50) + '…' : short)}`;
+  };
+  $('#aUrl').addEventListener('input', refreshParse);
+
   $('#aOk').onclick = async () => {
-    const url = $('#aUrl').value.trim();
-    if (!/^https?:\/\/\S+/.test(url)) return toast('请填写有效的商品链接');
+    const raw = $('#aUrl').value.trim();
+    if (!raw) return toast('请粘贴商品链接或分享文案');
+    if (!pickUrl(raw)) return toast('没找到链接，请粘贴带链接的分享文案');
     const groupNew = $('#aGroupNew').value.trim();
     const group = groupNew || $('#aGroup').value;
     const btn = $('#aOk');
     btn.disabled = true; btn.textContent = '识别中…';
     try {
       const r = await api('/api/products', { method: 'POST',
-        body: JSON.stringify({ url, name: $('#aName').value.trim(), shop: $('#aShop').value.trim(), group }) });
+        body: JSON.stringify({ raw, name: $('#aName').value.trim(), shop: $('#aShop').value.trim(), group }) });
       closeModal();
       if (r.autoFilled) {
         const bits = [];
@@ -1350,7 +1381,10 @@ function openAdd(presetGroup) {
       await refresh();
     } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = '添加'; }
   };
-  $('#aUrl').addEventListener('keydown', e => { if (e.key === 'Enter') $('#aOk').click(); });
+  // 文本框里回车是换行，用 ⌘/Ctrl+Enter 提交
+  $('#aUrl').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) $('#aOk').click();
+  });
 }
 
 async function openSched() {

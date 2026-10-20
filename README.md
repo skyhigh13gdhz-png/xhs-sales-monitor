@@ -59,7 +59,7 @@ mkdir -p ../backups && cp data/snapshots.json "../backups/snapshots-$(date +%Y%m
 
 ```bash
 cd xhs-monitor
-node test_core.js && node test_groups_explicit.js && node test_price.js
+node test_core.js && node test_groups_explicit.js && node test_price.js && node test_share_text.js
 ```
 
 ## 已知边界

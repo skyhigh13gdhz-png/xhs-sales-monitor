@@ -20,6 +20,59 @@ function extractItemId(url) {
   return null;
 }
 
+/* ---------- 分享文案解析 ----------
+   小红书 App 分享出来的往往不是纯链接，而是一整段：
+   【小红书】猫咪磁吸风铃冰箱贴 😆 nvJRp7r2K6 😆 https://xhslink.com/m/xxxx 点击链接或者复制本条信息打开【小红书app】查看 CZ6526
+   这里把链接抽出来，并尽量还原商品名（仅作兜底，权威标题仍以接口返回为准）
+*/
+
+// 链接字符集：排除中文与空格，避免把紧跟其后的汉字吞进 URL
+const URL_RE = /https?:\/\/[A-Za-z0-9\-._~:/?#[\]@!$&'()*+,;=%]+/g;
+
+// 分享文案里 URL 之后的固定尾巴，从这里开始都不是商品名
+const BOILERPLATE_RE = /(?:点击链接|复制本条信息|复制此条信息|打开【?小红书|去小红书|打开APP|查看精彩内容|先复制本条)/;
+
+const EMOJI_RE = /[\p{Extended_Pictographic}\u{FE0F}\u{200D}\u{20E3}]/gu;
+
+// 纯英数字的口令码（形如 nvJRp7r2K6 / CZ6526），不是商品名
+const CODE_RE = /^[A-Za-z0-9]{6,14}$/;
+
+/*
+解析一段文本，返回 { url, title }
+  url   找到的第一个链接；没有则为 ''
+  title 从文案里还原的商品名；还原不出则为 ''
+*/
+function parseShareText(input) {
+  const raw = String(input == null ? '' : input).trim();
+  if (!raw) return { url: '', title: '' };
+
+  const found = raw.match(URL_RE);
+  const url = found && found.length ? found[0].replace(/[.,;:!?)]+$/, '') : '';
+  if (!url) return { url: '', title: '' };
+
+  // 去掉链接本体，剩下的是文案
+  let t = raw.split(url).join(' ');
+
+  // 截掉 URL 之后的引导语（"点击链接或者复制本条信息…"）
+  const cut = t.split(BOILERPLATE_RE);
+  if (cut.length) t = cut[0];
+
+  // 去掉开头的【小红书】等标签（只认含"小红书"的方括号标签）
+  t = t.replace(/^\s*【[^】]*小红书[^】]*】\s*/, '');
+
+  // 去表情、去残留方括号
+  t = t.replace(EMOJI_RE, ' ').replace(/[【】[\]]/g, ' ');
+
+  // 按空白切词，只保留含中文的片段（口令码、纯英文码会被丢掉）
+  const keep = t.split(/\s+/).filter(w => /[\u4e00-\u9fa5]/.test(w) && !CODE_RE.test(w));
+  let title = keep.join(' ').replace(/\s+/g, ' ').trim();
+
+  // 去掉首尾的标点
+  title = title.replace(/^[、，。,.!！?？:：;；\-—|]+/, '').replace(/[、，。,.!！?？:：;；\-—|]+$/, '').trim();
+
+  return { url, title };
+}
+
 function parseSold(raw) {
   if (!raw) return null;
   const m = String(raw).replace(/\s+/g, '').match(/([0-9]+(?:\.[0-9]+)?)\s*(万|千|w|k)?/i);
@@ -180,4 +233,4 @@ async function resolveItemId(url) {
   return extractItemId(out);
 }
 
-module.exports = { fetchItem, resolveItemId, extractItemId, parseSold, extractPrice, API };
+module.exports = { fetchItem, resolveItemId, extractItemId, parseShareText, parseSold, extractPrice, API };

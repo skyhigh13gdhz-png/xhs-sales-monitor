@@ -29,6 +29,7 @@ function upsertProduct(db, p) {
       id: p.id, name: p.name || p.id, shop: p.shop || '', url: p.url || '', note: p.note || '',
       group: p.group || '',
       shopId: p.shopId || null, shopUrl: p.shopUrl || null, price: p.price === undefined ? null : p.price,
+      itemId: p.itemId || null,
       createdAt: new Date().toISOString(), archived: false
     };
     db.products.push(rec);
@@ -41,6 +42,7 @@ function upsertProduct(db, p) {
     if (p.shopId !== undefined) rec.shopId = p.shopId;
     if (p.shopUrl !== undefined) rec.shopUrl = p.shopUrl;
     if (p.price !== undefined) rec.price = p.price;
+    if (p.itemId !== undefined) rec.itemId = p.itemId;
   }
   return rec;
 }
