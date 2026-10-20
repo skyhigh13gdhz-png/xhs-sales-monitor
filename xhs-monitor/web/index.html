@@ -1,0 +1,1461 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>小红书销量监控</title>
+<style>
+  * { box-sizing: border-box; min-width: 0; }
+  :root {
+    --bg:#f6f6f3; --card:#fff; --line:rgba(0,0,0,.10); --line2:rgba(0,0,0,.18);
+    --tx:#1a1a1a; --tx2:#62625e; --tx3:#96968f;
+    --accent:#D85A30; --up:#D85A30; --teal:#0F6E56; --teal-l:#9FE1CB;
+    --red:#A32D2D; --red-l:#FCEBEB; --warnbg:#FAEEDA; --warntx:#854F0B;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:#17171a; --card:#202024; --line:rgba(255,255,255,.12); --line2:rgba(255,255,255,.22);
+      --tx:#ececec; --tx2:#a5a5a0; --tx3:#76766f;
+      --accent:#F0997B; --up:#F0997B; --teal:#5DCAA5; --teal-l:#1D9E75;
+      --red:#F09595; --red-l:#3a2020; --warnbg:#3a2f18; --warntx:#FAC775;
+    }
+  }
+  body {
+    margin:0; padding:16px 14px 70px; background:var(--bg); color:var(--tx);
+    font:13px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased;
+    padding-bottom:calc(70px + env(safe-area-inset-bottom));
+  }
+  .wrap { max-width:1120px; margin:0 auto; }
+
+  header { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:14px; }
+  h1 { font-size:18px; font-weight:500; margin:0 0 3px; }
+  .sub { color:var(--tx2); font-size:12px; }
+  .schedline { font-size:11px; color:var(--tx3); margin-top:2px; }
+  .schedline b { color:var(--tx2); font-weight:500; }
+  .schedset { color:var(--tx3); cursor:pointer; border-bottom:.5px dotted var(--line2); margin-left:2px; }
+  .schedset:hover { color:var(--tx); }
+  .actions { display:flex; gap:8px; flex-wrap:wrap; }
+
+  button {
+    font:inherit; font-size:13px; padding:8px 14px; border-radius:8px;
+    border:.5px solid var(--line2); background:var(--card); color:var(--tx); cursor:pointer; transition:opacity .15s;
+  }
+  button:hover:not(:disabled){opacity:.72} button:disabled{opacity:.4;cursor:not-allowed}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:500}
+  button.ghost{background:transparent}
+  button.sm{padding:4px 10px;font-size:12px}
+  button.danger{color:var(--red)}
+  button.icon{padding:8px 11px;font-size:15px;line-height:1}
+
+  .card{background:var(--card);border:.5px solid var(--line);border-radius:12px;padding:16px 18px;margin-bottom:14px}
+  .ch{font-size:13px;font-weight:500;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+
+  .banner{padding:12px 16px;border-radius:10px;margin-bottom:14px;font-size:13px;display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+  .banner.warn{background:var(--warnbg);color:var(--warntx)}
+  .banner.ok{background:var(--teal-l);color:var(--teal)}
+  .banner.err{background:var(--red-l);color:var(--red)}
+  @media (prefers-color-scheme:dark){.banner.ok{background:rgba(29,158,117,.18);color:var(--teal)}}
+
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:14px}
+  .kpi{background:var(--card);border:.5px solid var(--line);border-radius:10px;padding:13px 15px}
+  .kl{font-size:11px;color:var(--tx2);margin-bottom:5px}
+  .kv{font-size:22px;font-weight:500;font-variant-numeric:tabular-nums;overflow-wrap:break-word}
+  .kv.pos{color:var(--up)} .kv.sm{font-size:13px;font-weight:400}
+
+  /* 分组标签栏 */
+  .groupbar{display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+  .gtab{
+    display:inline-flex;align-items:center;gap:6px;padding:7px 13px;border-radius:8px;
+    border:.5px solid var(--line2);background:var(--card);color:var(--tx2);
+    font-size:12px;cursor:pointer;transition:all .15s;white-space:nowrap;
+  }
+  .gtab:hover{opacity:.75}
+  .gtab.on{background:var(--tx);color:var(--bg);border-color:var(--tx)}
+  .gtab .cnt{font-size:10px;opacity:.65;font-variant-numeric:tabular-nums}
+  .gtab .gtool{font-size:11px;opacity:.5;margin-left:2px;padding:0 2px}
+  .gtab .gtool:hover{opacity:1}
+  .gtab.add{border-style:dashed;color:var(--tx3)}
+  .gname{overflow:hidden;text-overflow:ellipsis;max-width:170px}
+
+  /* 商品管理弹窗 */
+  .mtabs{display:flex;gap:4px;border-bottom:.5px solid var(--line);margin-bottom:14px}
+  .mtab{padding:8px 14px;font-size:13px;color:var(--tx2);cursor:pointer;border-bottom:2px solid transparent;
+        display:flex;align-items:center;gap:6px;margin-bottom:-.5px}
+  .mtab.on{color:var(--tx);border-bottom-color:var(--tx);font-weight:500}
+  .mtab .cnt{font-size:10px;opacity:.6;font-variant-numeric:tabular-nums}
+  .mhint{font-size:11px;color:var(--tx3);line-height:1.7;background:var(--bg);border:.5px solid var(--line);
+         border-radius:8px;padding:9px 11px;margin-bottom:12px}
+  .mlist{max-height:46vh;overflow-y:auto}
+  .mrow2{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:.5px solid var(--line)}
+  .mrow2:last-child{border-bottom:none}
+  .mrow2main{flex:1 1 auto;min-width:0}
+  .mrow2name{font-size:13px;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .rowsub{font-size:11px;color:var(--tx3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:1px}
+  .mrow2act{flex:0 0 auto;display:flex;gap:6px}
+  .gtagx{color:var(--tx2)}
+
+  /* 分组概览表 */
+  .ovtable .grow{cursor:pointer;transition:background .12s}
+  .ovtable .grow:hover{background:var(--bg)}
+  .ovtable .grow:hover .growgo{color:var(--tx);border-bottom-color:var(--line2)}
+  .growname{font-size:13px;color:var(--tx);font-weight:500}
+  .growgo{font-size:11px;color:var(--tx3);border-bottom:.5px dotted transparent;padding-bottom:1px}
+
+  /* 店铺 → 商品 两层 */
+  .shoprow{cursor:pointer}
+  .shoprow:hover{background:var(--bg)}
+  .shoprow td{border-bottom:.5px solid var(--line);padding-top:11px;padding-bottom:9px}
+  .shopline{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+  .caret{font-size:11px;color:var(--tx3);width:11px;flex:0 0 11px;display:inline-block;text-align:center}
+  .caret.ph{visibility:hidden}
+  .shopname{font-size:13px;font-weight:500;color:var(--tx)}
+  .shopcnt{font-size:10px;color:var(--tx3);background:var(--bg);border:.5px solid var(--line);
+           border-radius:4px;padding:0 5px;line-height:1.6}
+  .shopnum{font-weight:500}
+  .shoprow.collapsed td{border-bottom-color:var(--line2)}
+  .prodrow td{padding-top:6px;padding-bottom:6px;border-bottom:none;background:transparent}
+  .prodrow:last-child td{border-bottom:.5px solid var(--line)}
+  .prodrow td:first-child{padding-left:26px}
+  .prodline{font-size:12px;color:var(--tx2);line-height:1.45}
+  .prodrow .num{font-size:12px;color:var(--tx2)}
+  .prodrow .up{color:var(--up)}
+
+  /* 二次确认框 */
+  .cfmbox{background:var(--bg);border:.5px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:12px}
+  .cfmrow{display:flex;gap:10px;font-size:12px;padding:4px 0;line-height:1.5}
+  .cfmrow:not(:last-child){border-bottom:.5px dashed var(--line)}
+  .cfmk{flex:0 0 68px;color:var(--tx3);font-size:11px}
+  .cfmv{flex:1 1 auto;color:var(--tx);overflow-wrap:break-word}
+  .cfmimpact{font-size:11px;line-height:1.7;color:var(--tx2);margin-top:8px;padding-top:8px;border-top:.5px solid var(--line)}
+  .cfmimpact.danger{color:var(--red)}
+  button.dangerBtn{background:var(--red);border-color:var(--red);color:#fff;font-weight:500}
+  @media (prefers-color-scheme:dark){button.dangerBtn{color:#1a1a1a}}
+
+  /* 组内对比 */
+  .cmp{display:flex;flex-direction:column;gap:2px}
+  .cmprow{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:.5px solid var(--line)}
+  .cmprow:last-child{border-bottom:none}
+  .cmpname{flex:0 0 130px;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .cmpshop{font-size:10px;color:var(--tx3);display:block;overflow:hidden;text-overflow:ellipsis}
+  .cmpbar{flex:1 1 auto;min-width:0}
+  .cmpval{flex:0 0 96px;text-align:right;font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .cmpdelta{flex:0 0 58px;text-align:right;font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap}
+
+  .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(0,1fr));gap:14px}
+
+  input,select{
+    font:inherit;font-size:13px;width:100%;padding:8px 11px;
+    border:.5px solid var(--line2);border-radius:8px;background:var(--bg);color:var(--tx)
+  }
+  input:focus,select:focus{outline:none;border-color:var(--accent)}
+  label{display:block;font-size:11px;color:var(--tx2);margin-bottom:4px}
+  .formrow{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:11px;margin-bottom:12px}
+
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  th{text-align:left;font-weight:500;color:var(--tx2);padding:7px 8px;border-bottom:.5px solid var(--line);white-space:nowrap}
+  td{padding:10px 8px;border-bottom:.5px solid var(--line);vertical-align:middle}
+  tr:last-child td{border-bottom:none}
+  .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .up{color:var(--up);font-weight:500}
+  .dim{color:var(--tx3)}
+  .nm{overflow-wrap:break-word}
+  .sh{font-size:11px;color:var(--tx3)}
+  a{color:var(--tx2);text-decoration:none;border-bottom:.5px solid var(--line2)}
+  .tag{display:inline-block;padding:1px 6px;font-size:10px;border-radius:4px;background:var(--red-l);color:var(--red)}
+  .tag.p{background:var(--warnbg);color:var(--warntx)}
+  .tag.gtag{background:var(--bg);color:var(--tx2);border:.5px solid var(--line2);margin-left:6px;max-width:130px;overflow:hidden;text-overflow:ellipsis;vertical-align:middle}
+
+  .empty{text-align:center;padding:38px 14px;color:var(--tx2)}
+  .empty b{display:block;color:var(--tx);font-weight:500;margin-bottom:6px;font-size:14px}
+
+  svg{width:100%;height:auto;display:block}
+
+  .prog{height:5px;background:var(--line);border-radius:3px;overflow:hidden;margin:9px 0 7px}
+  .prog i{display:block;height:100%;background:var(--accent);transition:width .3s}
+  .log{font-size:12px;color:var(--tx2);max-height:190px;overflow-y:auto}
+  .log div{padding:3px 0;border-bottom:.5px solid var(--line)}
+  .log div:last-child{border:none}
+  .log .ok{color:var(--teal)} .log .no{color:var(--red)}
+
+  .foot{font-size:11px;color:var(--tx3);line-height:1.7;margin-top:6px;padding-top:14px;border-top:.5px solid var(--line)}
+
+  .toast{position:fixed;bottom:calc(20px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);
+    background:var(--tx);color:var(--bg);padding:10px 20px;border-radius:8px;font-size:13px;
+    opacity:0;pointer-events:none;transition:opacity .2s;z-index:99;max-width:88vw;text-align:center}
+  .toast.on{opacity:1}
+
+  .modal{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;padding:16px;z-index:100;overflow-y:auto}
+  .modal.on{display:flex}
+  .mbox{background:var(--card);border-radius:14px;padding:20px;max-width:480px;width:100%;max-height:88vh;overflow-y:auto}
+  .mrow{display:flex;gap:8px;justify-content:flex-end;margin-top:16px;flex-wrap:wrap}
+  .tgl{display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--tx);padding:6px 0}
+  .tgl input{width:auto;flex:0 0 auto;margin:0}
+  .slot{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+  .slot input{flex:0 0 130px}
+  .hintbox{font-size:11px;color:var(--tx3);line-height:1.7;background:var(--bg);border:.5px solid var(--line);border-radius:8px;padding:10px 12px;margin-top:4px}
+
+  @media (max-width:640px) {
+    body{padding:12px 10px 70px}
+    h1{font-size:16px}
+    header{margin-bottom:12px}
+    .actions{width:100%}
+    .actions button{flex:1 1 auto;padding:9px 12px}
+    .kpis{grid-template-columns:1fr 1fr;gap:8px}
+    .kv{font-size:19px}
+    .card{padding:13px 14px;border-radius:10px}
+    .grid2{grid-template-columns:1fr}
+    table,thead,tbody,tr,td{display:block;width:100%}
+    thead{display:none}
+    tr{border-bottom:.5px solid var(--line);padding:10px 0}
+    tr:last-child{border-bottom:none}
+    td{border:none;padding:2px 0;text-align:left !important}
+    td.num{text-align:left !important;display:inline-block;width:auto;margin-right:14px}
+    td.num::before{content:attr(data-l) " ";color:var(--tx3);font-size:11px}
+    td:last-child{margin-top:8px;padding-top:8px;border-top:.5px solid var(--line)}
+    .hide-m{display:none !important}
+    .ovtable .grow{padding:12px 0}
+    .growname{font-size:14px;margin-bottom:2px}
+    .mbox{padding:18px 16px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>小红书对标销量监控</h1>
+      <div class="sub" id="subLine">正在加载…</div>
+    </div>
+    <div class="actions">
+      <button class="ghost icon" id="btnSched" title="自动采集设置">⏰</button>
+      <button class="ghost" id="btnManage">商品管理</button>
+      <button class="primary" id="btnCollect">立即采集</button>
+    </div>
+  </header>
+
+  <div id="banner"></div>
+  <div class="groupbar" id="groupBar"></div>
+  <div class="kpis" id="kpis"></div>
+
+  <div class="card" id="jobCard" style="display:none">
+    <div class="ch">采集进度 <span class="dim" id="jobText"></span></div>
+    <div class="prog"><i id="jobBar" style="width:0%"></i></div>
+    <div class="log" id="jobLog"></div>
+  </div>
+
+  <div class="card" id="cmpCard" style="display:none">
+    <div class="ch"><span id="cmpTitle">组内对比</span></div>
+    <div id="cmpBox"></div>
+  </div>
+
+  <div class="card">
+    <div class="ch">
+      <span>监控商品 <span class="dim" id="prodCount" style="font-weight:400"></span></span>
+      <span class="dim" style="font-weight:400;font-size:12px">窗口
+        <select id="selDays" style="width:auto;padding:3px 8px;font-size:12px">
+          <option value="1">1 天</option><option value="7" selected>7 天</option><option value="30">30 天</option>
+        </select></span>
+    </div>
+    <div id="tableBox"></div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <div class="ch">增量排行（最近一次）</div>
+      <div id="rankBox"></div>
+    </div>
+    <div class="card">
+      <div class="ch"><span id="chartName">累计销量走势</span></div>
+      <div id="chartBox"></div>
+      <div class="foot" style="border:none;padding-top:8px;margin-top:6px">曲线为页面公开「已售」累计值，非真实订单量</div>
+    </div>
+  </div>
+
+  <div class="card" id="priceCard">
+    <div class="ch"><span id="priceTitle">实际卖价走势</span></div>
+    <div id="priceBox"></div>
+  </div>
+
+  <div class="foot">
+    <b>口径说明：</b>「累计已售」是商品页对访客公开展示的数字，<b>不等于真实订单量</b>。退款、平台展示延迟、口径调整、商品链接变更都可能影响数值。
+    请仅用于趋势判断，不要作为财务报表或竞品算账依据。<br>
+    工具只读取商品详情接口对所有人公开返回的数据，不修改原始内容、不绕过平台技术措施。
+  </div>
+</div>
+
+<div class="modal" id="modal"><div class="mbox" id="mbox"></div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+let state = null, chartId = null, autoTimer = null;
+let currentGroup = '';   // '' = 全部；组名 = 该组；'__UNGROUPED__' = 未分组
+let priceTargetId = null;
+
+function toast(msg) {
+  const t = $('#toast');
+  t.textContent = msg; t.classList.add('on');
+  clearTimeout(t._tm); t._tm = setTimeout(() => t.classList.remove('on'), 2600);
+}
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[<>&'"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;',"'":'&apos;','"':'&quot;'}[c]));
+}
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok || d.error) throw new Error(d.error || ('请求失败 ' + r.status));
+  return d;
+}
+function fmt(n) { return n == null ? '—' : Number(n).toLocaleString(); }
+function deltaTxt(v) { return v == null ? '—' : (v > 0 ? '+' + v : String(v)); }
+function shortT(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return (d.getMonth()+1) + '/' + d.getDate() + ' ' + String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+}
+
+// 组标签只用于「切换查看」，改名前/解散一律在「商品管理」里做，避免误操作
+function renderGroupBar() {
+  const gs = state.groups || [];
+  const total = state.totals.products;
+  const cur = currentGroup;
+
+  const tabs = [`<div class="gtab ${cur === '' ? 'on' : ''}" data-g="">
+    <span>全部</span><span class="cnt">${total}</span></div>`];
+
+  for (const g of gs) {
+    if (g.isUngrouped) continue;
+    tabs.push(`<div class="gtab ${cur === g.name ? 'on' : ''}" data-g="${esc(g.name)}">
+      <span class="gname" title="${esc(g.name)}">${esc(g.name)}</span>
+      <span class="cnt">${g.count}</span>
+    </div>`);
+  }
+
+  if (gs.some(g => g.isUngrouped)) {
+    tabs.push(`<div class="gtab ${cur === '__UNGROUPED__' ? 'on' : ''}" data-g="__UNGROUPED__">
+      <span>未分组</span><span class="cnt">${(gs.find(g => g.isUngrouped) || {}).count || 0}</span></div>`);
+  }
+
+  $('#groupBar').innerHTML = tabs.join('');
+
+  $('#groupBar').querySelectorAll('.gtab[data-g]').forEach(el => {
+    el.onclick = () => { currentGroup = el.dataset.g; render(); };
+  });
+}
+
+// 当前选中组里的商品
+function visibleProducts() {
+  const ps = state.products;
+  if (!currentGroup) return ps;
+  if (currentGroup === '__UNGROUPED__') return ps.filter(p => !(p.group || '').trim());
+  return ps.filter(p => (p.group || '').trim() === currentGroup);
+}
+
+// 组内横向对比：以「店铺」为单位（竞品对比看的是店，不是单个链接）
+function renderCompare() {
+  const box = $('#cmpCard');
+  if (!currentGroup) { box.style.display = 'none'; return; }
+  const key = currentGroup === '__UNGROUPED__' ? '未分组' : currentGroup;
+  const g = (state.byShop || {})[key];
+  if (!g || !g.shops.length) { box.style.display = 'none'; return; }
+  box.style.display = '';
+
+  const items = g.shops.filter(x => x.totalCumulative > 0 || x.totalDelta !== 0);
+  const maxCum = Math.max(...items.map(x => x.totalCumulative), 1);
+
+  $('#cmpTitle').innerHTML = `${esc(key)} · 店与店对比
+    <span class="dim" style="font-weight:400;font-size:11px">
+      ${g.shopCount} 家店铺 · ${g.productCount} 个商品${g.priceMin && g.priceMax ? ` · ¥${g.priceMin}~${g.priceMax}` : ''}
+    </span>`;
+
+  if (!items.length) {
+    $('#cmpBox').innerHTML = '<div class="empty dim" style="padding:24px 0">该组商品还没有销量数据</div>';
+    return;
+  }
+
+  $('#cmpBox').innerHTML = `<div class="cmp">${items.map(x => {
+    const w = (x.totalCumulative / maxCum) * 100;
+    const dColor = x.totalDelta > 0 ? 'var(--up)' : (x.totalDelta < 0 ? 'var(--red)' : 'var(--tx3)');
+    const price = x.priceMin != null
+      ? (x.priceMin === x.priceMax ? `¥${x.priceMin}` : `¥${x.priceMin}~¥${x.priceMax}`)
+      : '';
+    return `<div class="cmprow">
+      <div class="cmpname" title="${esc(x.shop)}">${esc(x.shop)}
+        <span class="cmpshop">${x.count} 个商品${price ? ' · ' + price : ''}</span></div>
+      <div class="cmpbar"><div style="height:17px;width:${Math.max(w, 1.5)}%;border-radius:3px;background:var(--teal-l)"></div></div>
+      <div class="cmpval">${fmt(x.totalCumulative)}</div>
+      <div class="cmpdelta" style="color:${dColor}">${x.totalDelta == null ? '—' : (x.totalDelta > 0 ? '+' : '') + x.totalDelta}</div>
+    </div>`;
+  }).join('')}</div>
+  <div class="foot" style="border:none;padding-top:8px;margin-top:4px">
+    横向条长度 = 该店在组内的累计销量占比　右侧为店铺累计 / 店铺最近增量
+  </div>`;
+}
+
+// 顶部副标题：把概况与自动采集状态压成一行，不再单独占版面
+function renderSchedBar() {
+  const sc = state.schedule;
+  const t = state.totals;
+  const parts = [];
+
+  parts.push(`${t.products} 个商品`);
+  const gcount = (state.groups || []).filter(g => !g.isUngrouped).length;
+  if (gcount) parts.push(`${gcount} 个分组`);
+
+  if (sc.enabled) {
+    parts.push(`自动采集 <b>${esc(sc.times.join(' / '))}</b>`);
+    if (sc.nextRunText) parts.push(`下次 <b>${esc(shortT(sc.nextRunText))}</b>`);
+  } else {
+    parts.push('<b>自动采集已关闭</b>');
+  }
+
+  const el = $('#subLine');
+  if (!el) return;
+  el.innerHTML = parts.join('　·　') +
+    `　<span class="schedset" id="btnEditSched" title="自动采集设置">设置</span>`;
+  const b = $('#btnEditSched');
+  if (b) b.onclick = openSched;
+}
+
+// banner 只用于真正的异常，常态不占版面
+function renderBanner() {
+  const b = $('#banner');
+  const j = state.job;
+
+  if (state.collecting) {
+    b.innerHTML = `<div class="banner ok"><span>正在${j.trigger === 'auto' ? '自动' : '手动'}采集…</span></div>`;
+    return;
+  }
+  if (j.error) {
+    b.innerHTML = `<div class="banner err"><span>上次采集出错：${esc(j.error)}</span></div>`;
+    return;
+  }
+  // 最近一次采集有失败项才提示，全成功就不打扰
+  const failed = (j.results || []).filter(r => !r.ok);
+  if (failed.length) {
+    // 失败原因像是接口/风控问题且没登录时，给出可操作的下一步
+    const canFallback = !state.hasAuth && /风控|接口|登录|拦截|变更/.test(failed[0].failReason || '');
+    b.innerHTML = `<div class="banner warn"><span>上次 ${failed.length} 个商品采集失败：${esc(failed[0].failReason || '')}${failed.length > 1 ? ' …' : ''}${canFallback ? '　→ 可点右上角 ⏰ 登录后启用浏览器回退' : ''}</span></div>`;
+    return;
+  }
+  // 全部商品都没有有效数据（例如接口失效），才提示登录
+  const noData = state.products.length > 0 && state.products.every(p => p.cumulative === null);
+  if (noData && !state.hasAuth) {
+    b.innerHTML = `<div class="banner warn"><span>采集不到数据，可点右上角 ⏰ 登录后启用浏览器回退</span></div>`;
+    return;
+  }
+  b.innerHTML = '';
+}
+
+function renderKpis() {
+  const t = state.totals;
+  const sc = state.schedule;
+  // 副标题由 renderSchedBar 统一生成，这里不再覆盖，避免两者打架
+  $('#prodCount').textContent = t.products ? `(${t.products})` : '';
+  const lastRun = sc.lastRunAt ? shortT(sc.lastRunAt) : '待首次运行';
+
+  // 选中某个组时，KPI 切换成该组口径
+  if (currentGroup) {
+    const key = currentGroup === '__UNGROUPED__' ? '未分组' : currentGroup;
+    const g = (state.groupStats || {})[key];
+    if (g) {
+      $('#kpis').innerHTML = `
+        <div class="kpi"><div class="kl">${esc(key)} · 商品数</div><div class="kv">${g.count}<span class="dim" style="font-size:12px;font-weight:400"> / ${g.shopCount} 店</span></div></div>
+        <div class="kpi"><div class="kl">组内累计已售</div><div class="kv">${fmt(g.totalCumulative)}</div></div>
+        <div class="kpi"><div class="kl">组内最近增量</div><div class="kv ${g.totalDelta > 0 ? 'pos' : ''}">${deltaTxt(g.totalDelta)}</div></div>
+        <div class="kpi"><div class="kl">近 ${$('#selDays').value} 天</div><div class="kv ${g.totalWindow > 0 ? 'pos' : ''}">${deltaTxt(g.totalWindow)}</div></div>`;
+      return;
+    }
+  }
+
+  // 「全部」视图给概览型指标：组数、商品数、店铺数、采集时间
+  // 不再显示混合合计（+1、+7 这种数字不指向任何具体决策）
+  const gs = state.groups || [];
+  const realGroups = gs.filter(g => !g.isUngrouped);
+  const shopSet = new Set(state.products.map(p => p.shop).filter(Boolean));
+
+  // 找出最近一次增量最大的组，给一个"当前最值得看的地方"
+  let topGroup = null, topDelta = 0;
+  for (const g of gs) {
+    const gd = (state.groupStats || {})[g.name];
+    if (gd && (gd.totalDelta || 0) > topDelta) { topDelta = gd.totalDelta; topGroup = g.name; }
+  }
+
+  $('#kpis').innerHTML = `
+    <div class="kpi"><div class="kl">监控分组</div><div class="kv">${realGroups.length}${gs.some(g => g.isUngrouped) ? '<span class="dim" style="font-size:12px;font-weight:400"> + 未分组</span>' : ''}</div></div>
+    <div class="kpi"><div class="kl">监控商品</div><div class="kv">${t.products}<span class="dim" style="font-size:12px;font-weight:400"> / ${shopSet.size} 店</span></div></div>
+    <div class="kpi"><div class="kl">增量最大的组</div><div class="kv sm" style="font-size:14px">${topGroup ? esc(topGroup) + ' <span style="color:var(--up)">+' + topDelta + '</span>' : '<span class="dim">暂无增量</span>'}</div></div>
+    <div class="kpi"><div class="kl">最近自动采集</div><div class="kv sm">${lastRun}</div></div>`;
+}
+
+function renderJob() {
+  const j = state.job;
+  const card = $('#jobCard');
+  if (!j.running && !j.results.length) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  $('#jobText').textContent = j.running ? `${j.done}/${j.total} · ${j.current}` : `已完成 ${j.total} 个${j.trigger === 'auto' ? '（自动）' : ''}`;
+  const pct = j.total ? Math.round((j.done / j.total) * 100) : 0;
+  $('#jobBar').style.width = (j.running ? pct : 100) + '%';
+  $('#jobLog').innerHTML = j.results.slice().reverse().map(r => {
+    const via = r.via === 'api' ? '接口' : (r.via && r.via.startsWith('browser') ? '浏览器' : '');
+    const tag = via ? `<span class="dim"> [${via}]</span>` : '';
+    return r.ok
+      ? `<div class="ok">✓ ${esc(r.name)}${tag}　已售 ${fmt(r.soldTotal)}${r.delta != null ? `　(${deltaTxt(r.delta)})` : '　(建立基线)'}</div>`
+      : `<div class="no">✗ ${esc(r.name)}${tag}　${esc(r.failReason || '失败')}</div>`;
+  }).join('') + (j.error ? `<div class="no">错误：${esc(j.error)}</div>` : '');
+}
+
+function renderTable() {
+  // 「全部」视图：按分组聚合，一眼看哪个品在起量
+  if (!currentGroup) { renderGroupOverview(); return; }
+  renderProductTable();
+}
+
+/* ---------- 全部视图：分组概览 ---------- */
+function renderGroupOverview() {
+  const gs = state.groups || [];
+  if (!gs.length) {
+    $('#tableBox').innerHTML = `<div class="empty"><b>还没有监控商品</b>
+      点右上角「商品管理」→「商品管理」页签 → 「+ 添加监控商品」<br>
+      <span style="font-size:11px">粘贴小红书商品链接即可，名称、店铺、价格会自动识别</span></div>`;
+    return;
+  }
+
+  const rows = gs.map(g => {
+    const key = g.isUngrouped ? '未分组' : g.name;
+    const d = (state.groupStats || {})[key] || {};
+    const items = d.items || [];
+    const shops = [...new Set(items.map(x => x.shop).filter(Boolean))];
+    // 组内最热的商品，用于一眼看出是哪个
+    const hottest = items.filter(x => (x.delta || 0) > 0).sort((a, b) => b.delta - a.delta)[0];
+    const noData = items.length > 0 && items.every(x => x.cumulative === null);
+
+    const priceTxt = (d.priceMin != null && d.priceMax != null)
+      ? (d.priceMin === d.priceMax ? `¥${d.priceMin}` : `¥${d.priceMin}~${d.priceMax}`)
+      : '—';
+
+    return `<tr class="grow" data-g="${esc(g.isUngrouped ? '__UNGROUPED__' : g.name)}">
+      <td class="nm" data-l="分组">
+        <div class="growname">${esc(key)}${g.isUngrouped ? '' : ''}</div>
+        <div class="sh">${items.length ? items.slice(0, 3).map(x => esc(x.shop || '未知店铺')).join('、') + (items.length > 3 ? ` 等 ${items.length} 家` : '') : '还没有商品'}</div>
+      </td>
+      <td class="num" data-l="商品">${g.count}<span class="dim"> / ${shops.length} 店</span></td>
+      <td class="num" data-l="累计">${d.totalCumulative ? fmt(d.totalCumulative) : (noData ? '<span class="dim">待采集</span>' : '—')}</td>
+      <td class="num ${d.totalDelta > 0 ? 'up' : ''}" data-l="增量">${items.length ? deltaTxt(d.totalDelta) : '—'}</td>
+      <td class="num dim hide-m" data-l="窗口">${items.length ? deltaTxt(d.totalWindow) : '—'}</td>
+      <td class="num dim" data-l="价格">${priceTxt}</td>
+      <td class="sh hide-m" data-l="最热">${hottest ? esc(hottest.shop || '') + ' <b style="color:var(--up)">+' + hottest.delta + '</b>' : '<span class="dim">—</span>'}</td>
+      <td class="dim" style="white-space:nowrap;text-align:right"><span class="growgo">明细 ›</span></td>
+    </tr>`;
+  }).join('');
+
+  $('#tableBox').innerHTML = `<table class="ovtable">
+    <thead><tr>
+      <th class="num">分组</th><th class="num">商品</th><th class="num">累计已售</th><th class="num">最近增量</th>
+      <th class="num hide-m">窗口增量</th><th class="num">价格</th><th class="hide-m">组内最热</th><th></th>
+    </tr></thead>
+    <tbody>${rows}</tbody></table>
+    <div class="foot" style="border:none;padding-top:10px;margin-top:4px">
+      这是各组汇总。点任意一行进入该组，看组内各店铺的横向明细。
+    </div>`;
+
+  $('#tableBox').querySelectorAll('.grow').forEach(tr => {
+    tr.onclick = () => { currentGroup = tr.dataset.g; render(); };
+  });
+}
+
+/* ---------- 单元格小工具 ---------- */
+function deltaCell(p) {
+  if (p.delta == null) {
+    // 只有基线时明确说明原因，而不是干巴巴一个破折号
+    return p.samples <= 1
+      ? '<span class="dim" style="font-size:11px">待下次采集</span>'
+      : '<span class="dim">—</span>';
+  }
+  const sign = p.delta > 0 ? '+' : '';
+  return `${sign}${p.delta}${p.suspicious ? ' <span class="tag">回退</span>' : ''}`;
+}
+
+function priceInline(p) {
+  if (p.price == null) return '';
+  // 有优惠时：到手价 + 划线价，一眼看出真实成交价
+  if (p.priceHasPromo && p.priceOriginal) {
+    return ` · <b style="color:var(--up)">¥${p.price}</b> <s class="dim">¥${p.priceOriginal}</s>`;
+  }
+  return ` · ¥${p.price}`;
+}
+
+function perHourCell(p) {
+  if (p.perHour == null) return '—';
+  if (p.perHourReliable === false) {
+    // 间隔不足 45 分钟，外推值不可靠，标出来避免误读
+    return `<span title="两次记录间隔仅 ${p.hours} 小时，外推值仅供参考">${p.perHour.toFixed(1)}<span class="dim">*</span></span>`;
+  }
+  return p.perHour.toFixed(1);
+}
+
+/* ---------- 组视图：按「店铺 → 商品」两层展示 ---------- */
+let collapsedShops = {};   // { '组名|店铺名': true } 折叠状态
+
+function renderProductTable() {
+  const key = currentGroup === '__UNGROUPED__' ? '未分组' : currentGroup;
+  const g = (state.byShop || {})[key];
+
+  if (!g || !g.shops.length) {
+    $('#tableBox').innerHTML = `<div class="empty"><b>该分组下还没有商品</b>
+      去「商品管理」→「商品管理」里添加，或把已有商品调进来<br>
+      <span style="font-size:11px">点「全部」可以看到其他分组</span></div>`;
+    return;
+  }
+
+  const rows = g.shops.map(sh => {
+    const ck = key + '|' + sh.shop;
+    const collapsed = !!collapsedShops[ck];
+    const multi = sh.count > 1;
+    const priceTxt = sh.priceMin != null
+      ? (sh.priceMin === sh.priceMax ? `¥${sh.priceMin}` : `¥${sh.priceMin}~¥${sh.priceMax}`)
+      : '';
+
+    // 店铺汇总行：店铺名优先、字号更大，一眼看到"这家店"的数据
+    const head = `<tr class="shoprow ${collapsed ? 'collapsed' : ''}" data-shop="${esc(sh.shop)}" data-key="${esc(ck)}">
+      <td class="nm" data-l="店铺">
+        <div class="shopline">
+          ${multi ? `<span class="caret">${collapsed ? '▸' : '▾'}</span>` : '<span class="caret ph"></span>'}
+          <span class="shopname">${sh.shopUrl ? `<a href="${esc(sh.shopUrl)}" target="_blank" rel="noopener">${esc(sh.shop)}</a>` : esc(sh.shop)}</span>
+          <span class="shopcnt">${sh.count} 个商品</span>
+        </div>
+      </td>
+      <td class="num shopnum" data-l="店铺累计">${sh.totalCumulative ? fmt(sh.totalCumulative) : '—'}</td>
+      <td class="num shopnum ${sh.totalDelta > 0 ? 'up' : ''}" data-l="店铺增量">${deltaTxt(sh.totalDelta)}</td>
+      <td class="num dim shopnum hide-m" data-l="窗口">${deltaTxt(sh.totalWindow)}</td>
+      <td class="num dim shopnum" data-l="价格">${priceTxt || '—'}</td>
+      <td class="dim" data-l="记录">${sh.products.reduce((a, x) => a + x.samples, 0)} 次${sh.failCount ? ` <span class="tag p">失败${sh.failCount}</span>` : ''}</td>
+      <td></td>
+    </tr>`;
+
+    // 商品明细行：缩进显示，店铺名不再重复
+    const subs = collapsed ? '' : sh.products.map(p => `<tr class="prodrow">
+      <td class="nm" data-l="商品">
+        <div class="prodline">${esc(p.name)}</div>
+        <div class="sh">${p.url ? `<a href="${esc(p.url)}" target="_blank" rel="noopener">商品页</a>` : ''}${priceInline(p)}</div>
+      </td>
+      <td class="num" data-l="累计">${fmt(p.cumulative)}</td>
+      <td class="num ${p.delta > 0 ? 'up' : ''}" data-l="增量">${deltaCell(p)}</td>
+      <td class="num dim hide-m" data-l="窗口">${deltaTxt(p.cumulativeInWindow)}</td>
+      <td class="num dim" data-l="件/时">${perHourCell(p)}</td>
+      <td class="dim" data-l="样本">${p.samples} 次${p.failedRuns ? ` <span class="tag p">失败${p.failedRuns}</span>` : ''}</td>
+      <td style="white-space:nowrap">
+        <button class="sm ghost" data-act="rec" data-id="${esc(p.id)}">补录</button>
+        <button class="sm ghost" data-act="his" data-id="${esc(p.id)}">历史</button>
+      </td>
+    </tr>`).join('');
+
+    return head + subs;
+  }).join('');
+
+  $('#tableBox').innerHTML = `<table class="shoptable">
+    <thead><tr>
+      <th>店铺 / 商品</th><th class="num">累计已售</th><th class="num">最近增量</th>
+      <th class="num hide-m">窗口增量</th><th class="num">价格</th><th>记录</th><th></th>
+    </tr></thead>
+    <tbody>${rows}</tbody></table>
+    <div class="foot" style="border:none;padding-top:10px;margin-top:4px">
+      按店铺汇总，展开可看该店在组内的每个商品。点店铺行可折叠 / 展开。
+    </div>`;
+
+  // 点击店铺行折叠 / 展开（有多个商品时才可折叠）
+  $('#tableBox').querySelectorAll('.shoprow').forEach(tr => {
+    tr.onclick = (e) => {
+      if (e.target.closest('button')) return;
+      const k = tr.dataset.key;
+      collapsedShops[k] = !collapsedShops[k];
+      render();
+    };
+  });
+  $('#tableBox').querySelectorAll('button[data-act]').forEach(btn => {
+    btn.onclick = () => {
+      const id = btn.dataset.id;
+      if (btn.dataset.act === 'rec') openRecord(id);
+      else if (btn.dataset.act === 'his') openHistory(id);
+    };
+  });
+}
+
+function renderRank() {
+  const items = state.products.map(p => ({ name: p.name, v: p.delta || 0 }))
+    .filter(x => x.v !== 0).sort((a, b) => b.v - a.v).slice(0, 8);
+  if (!items.length) { $('#rankBox').innerHTML = '<div class="empty dim" style="padding:26px 0">还没有增量数据<br>采集两次以上才会显示</div>'; return; }
+  const max = Math.max(...items.map(i => Math.abs(i.v)), 1);
+  $('#rankBox').innerHTML = items.map(it => {
+    const w = (Math.abs(it.v) / max) * 300;
+    const color = it.v < 0 ? 'var(--red)' : 'var(--teal-l)';
+    return `<div style="display:flex;align-items:center;gap:10px;padding:5px 0">
+      <div style="flex:0 0 108px;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(it.name)}">${esc(it.name)}</div>
+      <div style="flex:1 1 auto"><div style="height:15px;width:${Math.max(w,2)}px;border-radius:3px;background:${color}"></div></div>
+      <div style="flex:0 0 52px;text-align:right;font-size:12px;font-variant-numeric:tabular-nums">${deltaTxt(it.v)}</div>
+    </div>`;
+  }).join('');
+}
+
+async function renderChart() {
+  const ps = visibleProducts();
+  if (!ps.length) { $('#chartBox').innerHTML = '<div class="empty dim" style="padding:26px 0">添加商品后显示走势</div>'; $('#chartName').textContent = '累计销量走势'; return; }
+  if (!ps.find(p => p.id === chartId)) chartId = ps[0].id;
+  const p = ps.find(x => x.id === chartId);
+  $('#chartName').innerHTML = `累计走势 · ${esc(p.name)} <select id="selChart" style="width:auto;max-width:160px;padding:3px 8px;font-size:12px">${
+    ps.map(x => `<option value="${esc(x.id)}" ${x.id === chartId ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>`;
+  const d = await api(`/api/chart?days=30&id=${encodeURIComponent(chartId)}`).catch(() => null);
+  const series = d ? (d.series[chartId] || []) : [];
+  if (series.length >= 2) {
+    $('#chartBox').innerHTML = svgChart(series);
+  } else if (series.length === 1) {
+    const sc = state.schedule;
+    const nextHint = sc.enabled && sc.nextRunText
+      ? `下次自动采集：<b>${esc(sc.nextRunText)}</b>`
+      : '自动采集未开启，可点右上角 ⏰ 开启';
+    $('#chartBox').innerHTML = `<div class="empty">
+      <b>目前只有 1 条基线记录</b>
+      基线：<b>${fmt(series[0].v)}</b>　记录于 ${esc(shortT(series[0].t))}<br>
+      <span style="font-size:11px">增量需要对比两次记录，再采一次即可算出</span><br>
+      ${nextHint}
+    </div>`;
+  } else {
+    $('#chartBox').innerHTML = '<div class="empty dim" style="padding:26px 0">暂无数据</div>';
+  }
+  const sel = $('#selChart');
+  if (sel) sel.onchange = () => { chartId = sel.value; renderChart(); };
+}
+
+function svgChart(series) {
+  const W=680,H=210,PL=54,PR=16,PT=14,PB=30, iw=W-PL-PR, ih=H-PT-PB;
+  const ys=series.map(p=>p.v), minY=Math.min(...ys), maxY=Math.max(...ys);
+  const pad=(maxY-minY)*0.15||Math.max(1,maxY*0.05);
+  const lo=Math.max(0,minY-pad), hi=maxY+pad;
+  const X=i=>PL+(i/(series.length-1))*iw, Y=v=>PT+ih-((v-lo)/(hi-lo||1))*ih;
+  const pts=series.map((p,i)=>`${X(i).toFixed(1)},${Y(p.v).toFixed(1)}`).join(' ');
+  const grid=[lo,(lo+hi)/2,hi].map(t=>{const y=Y(t).toFixed(1);
+    const lbl=Math.abs(t)>=10000?(t/10000).toFixed(1)+'万':Math.round(t);
+    return `<line x1="${PL}" y1="${y}" x2="${W-PR}" y2="${y}" stroke="var(--line)" stroke-width="0.5"/>
+    <text x="${PL-8}" y="${y}" font-size="11" text-anchor="end" dominant-baseline="central" fill="var(--tx3)">${lbl}</text>`;}).join('');
+  const dots=series.map((p,i)=>`<circle cx="${X(i).toFixed(1)}" cy="${Y(p.v).toFixed(1)}" r="2.5" fill="var(--teal)"/>`).join('');
+  const step=Math.max(1,Math.ceil(series.length/7));
+  const xl=series.map((p,i)=>{if(i%step!==0&&i!==series.length-1)return'';
+    const dt=new Date(p.t);return `<text x="${X(i).toFixed(1)}" y="${H-PB+15}" font-size="11" text-anchor="middle" fill="var(--tx3)">${dt.getMonth()+1}/${dt.getDate()}</text>`;}).join('');
+  const area=`${PL},${(PT+ih).toFixed(1)} ${pts} ${(PL+iw).toFixed(1)},${(PT+ih).toFixed(1)}`;
+  return `<svg viewBox="0 0 ${W} ${H}" role="img">
+    <polyline points="${area}" fill="var(--teal-l)" fill-opacity="0.25" stroke="none"/>
+    <polyline points="${pts}" fill="none" stroke="var(--teal)" stroke-width="1.6" stroke-linejoin="round"/>
+    ${grid}${dots}${xl}</svg>`;
+}
+
+/* ---------- 价格阶梯图 ---------- */
+// 只按"变更日"画：值不变时水平延伸，值变化时垂直跳变
+function priceStepSvg(series, changes) {
+  const W = 680, H = 200, PL = 56, PR = 76, PT = 16, PB = 30;
+  const iw = W - PL - PR, ih = H - PT - PB;
+  if (series.length < 1 || changes.length < 1) return null;
+
+  const vals = series.map(x => x.price);
+  let lo = Math.min(...vals), hi = Math.max(...vals);
+  if (hi === lo) { lo = Math.max(0, lo - lo * 0.08 || lo - 1); hi = hi + (hi - lo || 1); }
+  const pad = (hi - lo) * 0.18;
+  lo = Math.max(0, lo - pad); hi = hi + pad;
+
+  const t0 = new Date(series[0].ts).getTime();
+  const tEnd = new Date(series[series.length - 1].ts).getTime();
+  const span = Math.max(tEnd - t0, 1);
+  const X = t => PL + ((t - t0) / span) * iw;
+  const Y = v => PT + ih - ((v - lo) / (hi - lo || 1)) * ih;
+
+  // 构造阶梯路径：每个变更点先水平到该时刻，再垂直跳到新价
+  const pts = [];
+  changes.forEach((c, i) => {
+    const x = X(new Date(c.ts).getTime());
+    if (i === 0) {
+      pts.push([x, Y(c.price)]);
+    } else {
+      pts.push([x, Y(changes[i - 1].price)]);
+      pts.push([x, Y(c.price)]);
+    }
+  });
+  const lastX = X(tEnd);
+  const lastP = changes[changes.length - 1].price;
+  if (lastX > pts[pts.length - 1][0]) pts.push([lastX, Y(lastP)]);
+
+  const line = pts.map(p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+  const area = `${pts[0][0].toFixed(1)},${(PT + ih).toFixed(1)} ${line} ${lastX.toFixed(1)},${(PT + ih).toFixed(1)}`;
+
+  const grid = [lo, (lo + hi) / 2, hi].map(v => {
+    const y = Y(v).toFixed(1);
+    return `<line x1="${PL}" y1="${y}" x2="${W - PR}" y2="${y}" stroke="var(--line)" stroke-width="0.5"/>
+      <text x="${PL - 8}" y="${y}" font-size="11" text-anchor="end" dominant-baseline="central" fill="var(--tx3)">¥${v.toFixed(v < 100 ? 1 : 0)}</text>`;
+  }).join('');
+
+  const dots = changes.map(c => {
+    const x = X(new Date(c.ts).getTime()), y = Y(c.price);
+    const up = c.delta !== null && c.delta > 0;
+    const color = c.delta === null ? 'var(--teal)' : (up ? 'var(--red)' : 'var(--teal)');
+    const lbl = up ? '↑' : (c.delta !== null && c.delta < 0 ? '↓' : '');
+    return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.5" fill="${color}"/>
+      <text x="${x.toFixed(1)}" y="${(y - 9).toFixed(1)}" font-size="11" text-anchor="middle" fill="${color}" font-weight="500">¥${c.price}${lbl}</text>`;
+  }).join('');
+
+  const step = Math.max(1, Math.ceil(changes.length / 6));
+  const xl = changes.map((c, i) => {
+    if (i % step !== 0 && i !== changes.length - 1) return '';
+    const d = new Date(c.ts);
+    return `<text x="${X(d.getTime()).toFixed(1)}" y="${H - PB + 15}" font-size="11" text-anchor="middle" fill="var(--tx3)">${d.getMonth() + 1}/${d.getDate()}</text>`;
+  }).join('');
+
+  return `<svg viewBox="0 0 ${W} ${H}" role="img">
+    <polyline points="${area}" fill="var(--teal-l)" fill-opacity="0.18" stroke="none"/>
+    <polyline points="${line}" fill="none" stroke="var(--teal)" stroke-width="1.8" stroke-linejoin="miter"/>
+    ${grid}${dots}${xl}</svg>`;
+}
+
+async function renderPrices() {
+  const ps = state.products;
+  if (!ps.length) {
+    $('#priceCard').style.display = 'none';
+    return;
+  }
+  $('#priceCard').style.display = '';
+
+  // 选中分组时只看该组
+  const vis = visibleProducts();
+  let target = null;
+  if (priceTargetId) target = vis.find(p => p.id === priceTargetId) || null;
+  // 默认优先选「有价格变更」的商品——那才是最值得看的图
+  if (!target) target = vis.find(p => (p.priceChangeCount || 0) > 1) || null;
+  if (!target) target = vis.find(p => p.price != null) || vis[0];
+  if (!target) { $('#priceCard').style.display = 'none'; return; }
+  priceTargetId = target.id;
+
+  const d = await api(`/api/prices?days=90&id=${encodeURIComponent(target.id)}`).catch(() => null);
+  const info = d ? d.prices[target.id] : null;
+  const cur = info ? info.current : {};
+  const changes = info ? info.changes : [];
+
+  const priceTxt = cur.price != null ? `¥${cur.price}` : '—';
+  const origTxt = cur.original != null && cur.discount > 0 ? `划线价 ¥${cur.original}` : '';
+  const discTxt = cur.discount > 0 ? `直降 ¥${cur.discount}` : '';
+  const promoTag = cur.promos && cur.promos.length
+    ? cur.promos.filter(p => p.tag || p.name).map(p => p.tag || p.name).join(' / ')
+    : '';
+  const promoUntil = cur.promos && cur.promos[0] && cur.promos[0].until ? cur.promos[0].until.replace(/^有效期至/, '') : '';
+
+  $('#priceTitle').innerHTML = `实际卖价走势 · ${esc(target.name)}
+    <select id="selPriceProd" style="width:auto;max-width:170px;padding:3px 8px;font-size:12px">
+      ${visibleProducts().map(x => `<option value="${esc(x.id)}" ${x.id === target.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}
+    </select>`;
+
+  const head = `<div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:12px">
+    <div style="font-size:26px;font-weight:500;font-variant-numeric:tabular-nums">${priceTxt}</div>
+    <div style="font-size:11px;color:var(--tx2)">
+      ${esc(cur.price != null && cur.discount > 0 ? '到手价' : '售价')}
+      ${origTxt ? ` · <s class="dim">${origTxt}</s>` : ''}
+      ${discTxt ? ` · <span style="color:var(--up)">${discTxt}</span>` : ''}
+    </div>
+    ${promoTag ? `<div class="tag p" style="font-size:10px">${esc(promoTag)}${promoUntil ? ' · 至' + esc(promoUntil) : ''}</div>` : ''}
+    ${cur.since ? `<div class="dim" style="font-size:11px">此价自 ${esc(shortT(cur.since))}${cur.changedDays != null ? `（${cur.changedDays} 天）` : ''}</div>` : ''}
+  </div>`;
+
+  const svg = priceStepSvg(info ? info.series : [], changes);
+  let chart;
+  if (svg) {
+    chart = svg;
+  } else if ((info ? info.series.length : 0) > 0) {
+    chart = '<div class="empty dim" style="padding:22px 0">价格还没有变化过<br><span style="font-size:11px">有变更时会自动记录并画出阶梯图</span></div>';
+  } else {
+    chart = `<div class="empty"><b>还没有价格记录</b>下次采集开始会记录到手价<br>
+      <span style="font-size:11px">此前采集的只有划线价，为避免假跳变已标记为未采集</span></div>`;
+  }
+
+  const changeRows = changes.filter(c => c.delta !== null).map(c => {
+    const up = c.delta > 0;
+    return `<div style="display:flex;gap:10px;font-size:12px;padding:5px 0;border-bottom:.5px solid var(--line)">
+      <span class="dim" style="flex:0 0 92px">${esc(shortT(c.ts))}</span>
+      <span style="flex:0 0 90px">¥${c.from} → <b>¥${c.price}</b></span>
+      <span style="flex:0 0 60px;color:${up ? 'var(--red)' : 'var(--teal)'}">${up ? '↑' : '↓'} ¥${Math.abs(c.delta)}</span>
+      <span class="dim" style="flex:1 1 auto">${c.promos && c.promos[0] ? esc(c.promos[0].tag || c.promos[0].name || '') : ''}</span>
+    </div>`;
+  }).join('');
+
+  $('#priceBox').innerHTML = head + chart +
+    (changeRows ? `<div style="margin-top:12px"><div style="font-size:11px;color:var(--tx2);margin-bottom:4px">价格变更记录（${changes.filter(c => c.delta !== null).length} 次）</div>${changeRows}</div>` : '') +
+    `<div class="foot" style="border:none;padding-top:8px;margin-top:6px">
+      阶梯图按变更日绘制：价格不变时为水平线，变更当天垂直跳变。
+      「到手价」= 划线价减去商家券/立减后的实付价，才是商家真正想卖的价。
+    </div>`;
+
+  const sel = $('#selPriceProd');
+  if (sel) sel.onchange = () => { priceTargetId = sel.value; renderPrices(); };
+}
+
+function render() {
+  renderBanner(); renderSchedBar(); renderGroupBar(); renderKpis(); renderJob();
+  renderCompare(); renderTable(); renderRank(); renderChart(); renderPrices();
+  $('#btnCollect').disabled = state.collecting;
+  $('#btnCollect').textContent = state.collecting ? '采集中…' : '立即采集';
+}
+
+async function refresh() {
+  state = await api(`/api/state?days=${$('#selDays').value}`);
+  render();
+  scheduleAutoRefresh();
+}
+
+// 采集中快轮询，空闲/后台时放慢，省电
+function scheduleAutoRefresh() {
+  clearTimeout(autoTimer);
+  if (state.collecting) { autoTimer = setTimeout(() => refresh().catch(()=>{}), 1500); return; }
+  const ms = document.hidden ? 60000 : 20000;
+  autoTimer = setTimeout(() => { if (!document.hidden) refresh().catch(()=>{}); else scheduleAutoRefresh(); }, ms);
+}
+
+/* ---------- 分组操作 ---------- */
+function groupOptions(selected) {
+  const gs = (state.groups || []).filter(g => !g.isUngrouped).map(g => g.name);
+  const opts = [`<option value="">未分组</option>`]
+    .concat(gs.map(g => `<option value="${esc(g)}" ${g === selected ? 'selected' : ''}>${esc(g)}</option>`));
+  return opts.join('');
+}
+
+/* ---------- 二次确认：先讲清影响，再让人点确认 ---------- */
+/**
+ * @param {object} o
+ *  title      标题
+ *  rows       [[标签, 值]] 要展示的关键信息
+ *  impact     影响说明（多行文本）
+ *  confirmText 确认按钮文案
+ *  danger     是否危险操作（红色）
+ *  onConfirm  确认后的回调
+ *  onCancel   取消后回到哪（默认回到商品管理）
+ */
+function confirmAction(o, onCancel) {
+  const rows = (o.rows || []).map(([k, v]) =>
+    `<div class="cfmrow"><span class="cfmk">${esc(k)}</span><span class="cfmv">${esc(v)}</span></div>`).join('');
+  openModal(`
+    <div class="ch">${esc(o.title)}</div>
+    <div class="cfmbox">
+      ${rows}
+      ${o.extraHtml || ''}
+      ${o.impact ? `<div class="cfmimpact ${o.danger ? 'danger' : ''}">${o.impact}</div>` : ''}
+    </div>
+    <div class="mrow">
+      <button class="ghost" id="cfCancel">取消</button>
+      <button class="${o.danger ? 'dangerBtn' : 'primary'}" id="cfOk">${esc(o.confirmText || '确认')}</button>
+    </div>`);
+  $('#cfCancel').onclick = () => { if (onCancel) onCancel(); else closeModal(); };
+  $('#cfOk').onclick = async () => {
+    const btn = $('#cfOk');
+    btn.disabled = true;
+    btn.textContent = '处理中…';
+    try { await o.onConfirm(document); }
+    catch (e) { toast(e.message); btn.disabled = false; btn.textContent = o.confirmText || '确认'; }
+  };
+}
+
+/* ---------- 商品管理（组管理 + 商品管理） ---------- */
+let manageTab = 'groups';   // 'groups' | 'products'
+
+function openManage(tab) {
+  if (tab) manageTab = tab;
+  const gs = (state.groups || []).filter(g => !g.isUngrouped);
+  const ps = state.products;
+
+  const groupRows = gs.map(g => {
+    const items = ps.filter(p => (p.group || '').trim() === g.name);
+    return `<div class="mrow2">
+      <div class="mrow2main">
+        <div class="mrow2name">${esc(g.name)}</div>
+        <div class="rowsub">${items.length} 个商品${items.length ? '：' + items.map(x => esc(x.shop || '未知店铺')).join('、') : ''}</div>
+      </div>
+      <div class="mrow2act">
+        <button class="sm ghost" data-gact="rename" data-g="${esc(g.name)}">改名</button>
+        <button class="sm ghost danger" data-gact="del" data-g="${esc(g.name)}">解散</button>
+      </div>
+    </div>`;
+  }).join('') || '<div class="empty dim" style="padding:22px 0">还没有分组<br><span style="font-size:11px">新建一个组，把同品的多个店铺放进去对比</span></div>';
+
+  const prodRows = ps.map(p => {
+    const gname = (p.group || '').trim();
+    return `<div class="mrow2">
+      <div class="mrow2main">
+        <div class="mrow2name">${esc(p.name)}</div>
+        <div class="rowsub">${esc(p.shop || '未识别店铺')}${p.price != null ? ' · ¥' + p.price : ''}${gname ? ' · <span class="gtagx">' + esc(gname) + '</span>' : ' · 未分组'}</div>
+      </div>
+      <div class="mrow2act">
+        <button class="sm ghost" data-pact="group" data-id="${esc(p.id)}">调组</button>
+        <button class="sm ghost danger" data-pact="del" data-id="${esc(p.id)}">删除</button>
+      </div>
+    </div>`;
+  }).join('') || '<div class="empty dim" style="padding:22px 0">还没有监控商品</div>';
+
+  openModal(`
+    <div class="ch">商品管理</div>
+    <div class="mtabs">
+      <div class="mtab ${manageTab === 'groups' ? 'on' : ''}" data-t="groups">组管理<span class="cnt">${gs.length}</span></div>
+      <div class="mtab ${manageTab === 'products' ? 'on' : ''}" data-t="products">商品管理<span class="cnt">${ps.length}</span></div>
+    </div>
+
+    <div class="mpane" id="paneGroups" style="display:${manageTab === 'groups' ? 'block' : 'none'}">
+      <div class="mhint">组只用于把「同一商品的不同店铺」放到一起对比。解散组不会删除任何商品和历史数据。</div>
+      <button class="primary" id="mNewGroup" style="width:100%;margin-bottom:12px">+ 新建分组</button>
+      <div class="mlist">${groupRows}</div>
+    </div>
+
+    <div class="mpane" id="paneProducts" style="display:${manageTab === 'products' ? 'block' : 'none'}">
+      <button class="primary" id="mNewProd" style="width:100%;margin-bottom:12px">+ 添加监控商品</button>
+      <div class="mlist">${prodRows}</div>
+    </div>
+
+    <div class="mrow">
+      <button class="ghost" id="mClose">关闭</button>
+    </div>`);
+
+  $('#mClose').onclick = closeModal;
+
+  // tab 切换
+  document.querySelectorAll('.mtab').forEach(el => {
+    el.onclick = () => { manageTab = el.dataset.t; openManage(); };
+  });
+
+  $('#mNewGroup').onclick = openNewGroup;
+  $('#mNewProd').onclick = () => openAdd(currentGroup && currentGroup !== '__UNGROUPED__' ? currentGroup : '');
+
+  document.querySelectorAll('[data-gact]').forEach(el => {
+    el.onclick = () => {
+      if (el.dataset.gact === 'rename') openRenameGroup(el.dataset.g);
+      else if (el.dataset.gact === 'del') doDeleteGroup(el.dataset.g);
+    };
+  });
+  document.querySelectorAll('[data-pact]').forEach(el => {
+    el.onclick = () => {
+      if (el.dataset.pact === 'group') openMoveGroup(el.dataset.id);
+      else if (el.dataset.pact === 'del') doDelete(el.dataset.id);
+    };
+  });
+}
+
+function openNewGroup() {
+  openModal(`
+    <div class="ch">新建分组</div>
+    <div class="hintbox" style="margin-bottom:12px">
+      分组用来把「同一个商品的不同店铺」放到一起对比。<br>
+      例如：猫猫盲盒（店A / 店B / 店C）、iPad电容笔（店A / 店D）
+    </div>
+    <label>组名</label>
+    <input id="ngName" placeholder="例：猫猫盲盒" style="margin-bottom:12px">
+    <div class="mrow">
+      <button class="ghost" id="ngCancel">取消</button>
+      <button class="primary" id="ngOk">创建</button>
+    </div>`);
+  $('#ngCancel').onclick = () => openManage();
+  setTimeout(() => $('#ngName').focus(), 60);
+  const doCreate = async () => {
+    const name = $('#ngName').value.trim();
+    if (!name) return toast('请输入组名');
+    if (name === '未分组') return toast('「未分组」是系统保留名称');
+    if ((state.groups || []).some(g => g.name === name)) return toast('该组已存在');
+    // 组没有独立实体，靠商品的 group 字段体现；这里先建一个占位商品？不行。
+    // 改为：创建一个空组需要后端支持，直接用 API 建一个存档组
+    try {
+      await api('/api/groups', { method: 'POST', body: JSON.stringify({ action: 'create', name }) });
+      toast(`已创建分组「${name}」`);
+      await refresh();
+      openManage('groups');
+    } catch (e) { toast(e.message); }
+  };
+  $('#ngOk').onclick = doCreate;
+  $('#ngName').addEventListener('keydown', e => { if (e.key === 'Enter') doCreate(); });
+}
+
+function openRenameGroup(name) {
+  const items = state.products.filter(p => (p.group || '').trim() === name);
+  openModal(`
+    <div class="ch">改组名</div>
+    <div class="cfmbox">
+      <div class="cfmrow"><span class="cfmk">当前组名</span><span class="cfmv">${esc(name)}</span></div>
+      <div class="cfmrow"><span class="cfmk">组内商品</span><span class="cfmv">${items.length} 个${items.length ? '（' + items.map(x => esc(x.shop || '未知店铺')).join('、') + '）' : ''}</span></div>
+    </div>
+    <label>新的组名</label>
+    <input id="rgName" value="${esc(name)}" style="margin-bottom:8px">
+    <div class="dim" style="font-size:11px;margin-bottom:4px">组内商品与历史数据都会保留，只改显示名。</div>
+    <div class="mrow">
+      <button class="ghost" id="rgCancel">取消</button>
+      <button class="primary" id="rgNext">下一步</button>
+    </div>`);
+  $('#rgCancel').onclick = () => openManage('groups');
+  setTimeout(() => { const el = $('#rgName'); el.focus(); el.select(); }, 60);
+  // 点「下一步」先展示将要发生什么，再让人确认
+  $('#rgNext').onclick = () => {
+    const to = $('#rgName').value.trim();
+    if (!to) return toast('组名不能为空');
+    if (to === name) return toast('组名没有变化');
+    if ((state.groups || []).some(g => g.name === to)) return toast('该组名已存在');
+    confirmAction({
+      title: '确认改组名',
+      rows: [
+        ['原组名', name],
+        ['新组名', to],
+        ['影响商品', `${items.length} 个`]
+      ],
+      impact: `这 ${items.length} 个商品的分组会从「${name}」改为「${to}」。<br>商品、销量和价格历史全部保留，只改分组名称。`,
+      confirmText: '确认改名',
+      onConfirm: async () => {
+        const r = await api('/api/groups', { method: 'POST', body: JSON.stringify({ action: 'rename', from: name, to }) });
+        if (currentGroup === name) currentGroup = to;
+        toast(`已改名为「${to}」，${r.moved} 个商品已更新`);
+        await refresh();
+        openManage('groups');
+      }
+    }, () => openRenameGroup(name));
+  };
+}
+
+function doDeleteGroup(name) {
+  const items = state.products.filter(p => (p.group || '').trim() === name);
+  const shops = items.map(p => p.shop || '未识别店铺');
+  // 用真实快照总条数（含失败记录），不是 samples（仅有效记录）
+  const snapCount = items.reduce((a, p) => a + (p.snapTotal || 0), 0);
+  const otherGroups = (state.groups || []).filter(g => !g.isUngrouped && g.name !== name).map(g => g.name);
+
+  // 商品去向：未分组（默认，最安全）/ 并入其他组 / 连同商品一起删除（最危险）
+  const extra = items.length
+    ? `<div style="margin-top:10px">
+        <label style="margin-bottom:5px">组内这 ${items.length} 个商品怎么处理</label>
+        <select id="dgTarget">
+          <option value="">归到「未分组」（推荐，数据全部保留）</option>
+          ${otherGroups.map(g => `<option value="MOVE:${esc(g)}">并入「${esc(g)}」</option>`).join('')}
+          <option value="DELETE">⚠ 连同这 ${items.length} 个商品一起删除</option>
+        </select>
+        <div id="dgWarn" style="display:none;margin-top:9px;padding:10px 12px;border-radius:8px;
+             background:var(--red-l);color:var(--red);font-size:11px;line-height:1.7">
+          <b>这是不可恢复的操作。</b><br>
+          将永久删除这 ${items.length} 个商品（${esc(shops.join('、') || '—')}）
+          及其 <b>${snapCount} 条历史记录</b>，销量和价格曲线全部消失。<br>
+          如果只是想停掉某个商品，请到「商品管理」里单独删除，不要用这一项。
+        </div>
+      </div>`
+    : '';
+
+  confirmAction({
+    title: '解散分组',
+    rows: [
+      ['分组名称', name],
+      ['组内商品', `${items.length} 个`],
+      ['涉及店铺', shops.length ? shops.join('、') : '（空组）'],
+      ['历史记录', `${snapCount} 条`]
+    ],
+    extraHtml: extra,
+    impact: items.length
+      ? '默认只改变分组归属：商品本身和全部历史数据都会保留，只销毁「分组」这个分类。<br>解散后分组消失，不能再恢复分组本身。'
+      : '这是一个空组，没有商品。解散后分组消失，不影响任何数据。',
+    confirmText: '确认解散',
+    danger: true,
+    onConfirm: async (doc) => {
+      const sel = doc.querySelector('#dgTarget');
+      const v = sel ? sel.value : '';
+
+      // 选「一起删除」时再确认一次，避免一次误点就毁掉数据
+      if (v === 'DELETE') {
+        if (!items.length) throw new Error('该组没有商品');
+        openModal(`
+          <div class="ch" style="color:var(--red)">最后确认：删除商品不可恢复</div>
+          <div class="cfmbox" style="border-color:var(--red)">
+            <div class="cfmrow"><span class="cfmk">将解散</span><span class="cfmv">${esc(name)}</span></div>
+            <div class="cfmrow"><span class="cfmk">将删除</span><span class="cfmv">${items.length} 个商品</span></div>
+            ${items.map(p => `<div class="cfmrow"><span class="cfmk">商品</span><span class="cfmv">${esc(p.name)}<br><span class="dim" style="font-size:11px">${esc(p.shop || '未识别店铺')} · ${p.snapTotal || 0} 条记录</span></span></div>`).join('')}
+            <div class="cfmrow"><span class="cfmk">历史记录</span><span class="cfmv">${snapCount} 条，一并删除</span></div>
+          </div>
+          <div class="cfmimpact danger">
+            删除后这些商品的销量曲线、价格阶梯图、全部历史快照都会消失，<b>无法恢复</b>。<br>
+            如果你只是想让他们不再出现在这个分组里，请点「取消」，改选「归到未分组」。
+          </div>
+          <div class="mrow">
+            <button class="ghost" id="finalCancel">取消</button>
+            <button class="dangerBtn" id="finalOk">确认全部删除</button>
+          </div>`);
+        document.querySelector('#finalCancel').onclick = () => doDeleteGroup(name);
+        document.querySelector('#finalOk').onclick = async () => {
+          const btn = document.querySelector('#finalOk');
+          btn.disabled = true; btn.textContent = '删除中…';
+          try {
+            const r = await api('/api/groups', { method: 'POST',
+              body: JSON.stringify({ action: 'delete', name, deleteProducts: true }) });
+            if (currentGroup === name) currentGroup = '';
+            toast(r.message || '已删除');
+            await refresh();
+            openManage('groups');
+          } catch (e) {
+            toast(e.message); btn.disabled = false; btn.textContent = '确认全部删除';
+          }
+        };
+        return;
+      }
+
+      const body = { action: 'delete', name };
+      if (v.startsWith('MOVE:')) body.moveTo = v.slice(5);
+      else body.moveTo = '';
+      const r = await api('/api/groups', { method: 'POST', body: JSON.stringify(body) });
+      if (currentGroup === name) currentGroup = '';
+      toast(r.message || '已解散');
+      await refresh();
+      openManage('groups');
+    }
+  }, () => openManage('groups'));
+
+  // 选中「一起删除」时，把警告块亮出来，按钮文案也跟着变
+  setTimeout(() => {
+    const sel = document.querySelector('#dgTarget');
+    const warn = document.querySelector('#dgWarn');
+    const btn = document.querySelector('#cfOk');
+    if (!sel || !warn || !btn) return;
+    sel.onchange = () => {
+      const isDel = sel.value === 'DELETE';
+      warn.style.display = isDel ? 'block' : 'none';
+      btn.textContent = isDel ? '继续（还有一步确认）' : '确认解散';
+    };
+  }, 40);
+}
+
+function openMoveGroup(id) {
+  const p = state.products.find(x => x.id === id);
+  const cur = (p.group || '').trim();
+  const gs = (state.groups || []).filter(g => !g.isUngrouped).map(g => g.name);
+  openModal(`
+    <div class="ch">调整分组 · ${esc(p.name)}</div>
+    <div class="cfmbox">
+      <div class="cfmrow"><span class="cfmk">当前分组</span><span class="cfmv">${cur ? esc(cur) : '未分组'}</span></div>
+      <div class="cfmrow"><span class="cfmk">店铺</span><span class="cfmv">${esc(p.shop || '未识别')}</span></div>
+    </div>
+    <label>移到哪个组</label>
+    <select id="mgSel" style="margin-bottom:10px">
+      <option value="" ${!cur ? 'selected' : ''}>未分组</option>
+      ${gs.map(g => `<option value="${esc(g)}" ${g === cur ? 'selected' : ''}>${esc(g)}</option>`).join('')}
+    </select>
+    <label>或新建一个组</label>
+    <input id="mgNew" placeholder="输入新组名，留空则用上面的选择">
+    <div class="mrow">
+      <button class="ghost" id="mgCancel">取消</button>
+      <button class="primary" id="mgNext">下一步</button>
+    </div>`);
+  $('#mgCancel').onclick = () => openManage('products');
+  $('#mgNext').onclick = () => {
+    const nw = $('#mgNew').value.trim();
+    const target = nw || $('#mgSel').value;
+    if (target === cur) return toast('分组没有变化');
+    confirmAction({
+      title: '确认调整分组',
+      rows: [
+        ['商品', p.name],
+        ['店铺', p.shop || '未识别店铺'],
+        ['原分组', cur || '未分组'],
+        ['新分组', target || '未分组']
+      ],
+      impact: '只改变这个商品所属的分组，销量、价格与历史记录都不受影响。',
+      confirmText: '确认调整',
+      onConfirm: async () => {
+        await api('/api/products/group', { method: 'POST', body: JSON.stringify({ id, group: target }) });
+        toast(target ? `已移到「${target}」` : '已移出分组');
+        await refresh();
+        openManage('products');
+      }
+    }, () => openMoveGroup(id));
+  };
+}
+
+function doDelete(id) {
+  const p = state.products.find(x => x.id === id);
+  if (!p) return toast('未找到该商品');
+  const hist = state.snapshotsFor ? 0 : 0;
+  // 用后端已返回的样本数估算历史条数
+  openModal('<div class="ch">读取中…</div>');
+  api('/api/history?id=' + encodeURIComponent(id)).then(d => {
+    const n = d.history.length;
+    const okCount = d.history.filter(x => x.ok).length;
+    confirmAction({
+      title: '删除监控商品',
+      rows: [
+        ['商品', p.name],
+        ['店铺', p.shop || '未识别店铺'],
+        ['分组', (p.group || '').trim() || '未分组'],
+        ['历史记录', `${n} 条（其中 ${okCount} 条有效）`]
+      ],
+      impact: `将永久删除这个商品和它的 <b>${n} 条历史记录</b>，<b>无法恢复</b>。<br>如果只是想暂时不监控，建议先不要删，或者先把分组解掉。<br>如不确定，可先点「取消」，用「历史」查看一下记录。`,
+      confirmText: '确认删除',
+      danger: true,
+      onConfirm: async () => {
+        await api('/api/products?id=' + encodeURIComponent(id), { method: 'DELETE' });
+        toast('已删除');
+        await refresh();
+        openManage('products');
+      }
+    }, () => openManage('products'));
+  }).catch(e => toast('读取历史失败：' + e.message));
+}
+
+function openModal(html) { $('#mbox').innerHTML = html; $('#modal').classList.add('on'); }
+function closeModal() { $('#modal').classList.remove('on'); }
+$('#modal').onclick = e => { if (e.target.id === 'modal') closeModal(); };
+
+function openAdd(presetGroup) {
+  const preselect = presetGroup || (currentGroup && currentGroup !== '__UNGROUPED__' ? currentGroup : '');
+  const gs = (state.groups || []).filter(g => !g.isUngrouped).map(g => g.name);
+  openModal(`
+    <div class="ch">添加监控商品</div>
+    <label>商品链接（必填）</label>
+    <input id="aUrl" placeholder="粘贴小红书商品链接或分享短链" style="margin-bottom:12px">
+    <div class="hintbox">只需链接即可。商品名称、店铺名称、价格会自动识别，并立即建立销量基线。<br>支持短链形式：xhslink.com/m/xxxx</div>
+    <div class="formrow" style="margin-top:12px;margin-bottom:0">
+      <div><label>归到哪个组</label>
+        <select id="aGroup">
+          <option value="" ${!preselect ? 'selected' : ''}>未分组</option>
+          ${gs.map(g => `<option value="${esc(g)}" ${g === preselect ? 'selected' : ''}>${esc(g)}</option>`).join('')}
+        </select>
+      </div>
+      <div><label>或新建组</label><input id="aGroupNew" placeholder="输入新组名"></div>
+    </div>
+    <div class="formrow" style="margin-top:11px;margin-bottom:0">
+      <div><label>商品名称（可选，覆盖自动识别）</label><input id="aName" placeholder="留空则自动"></div>
+      <div><label>店铺名称（可选）</label><input id="aShop" placeholder="留空则自动"></div>
+    </div>
+    <div class="mrow">
+      <button class="ghost" id="aCancel">取消</button>
+      <button class="primary" id="aOk">添加</button>
+    </div>`);
+  $('#aCancel').onclick = closeModal;
+  setTimeout(() => $('#aUrl').focus(), 60);
+  $('#aOk').onclick = async () => {
+    const url = $('#aUrl').value.trim();
+    if (!/^https?:\/\/\S+/.test(url)) return toast('请填写有效的商品链接');
+    const groupNew = $('#aGroupNew').value.trim();
+    const group = groupNew || $('#aGroup').value;
+    const btn = $('#aOk');
+    btn.disabled = true; btn.textContent = '识别中…';
+    try {
+      const r = await api('/api/products', { method: 'POST',
+        body: JSON.stringify({ url, name: $('#aName').value.trim(), shop: $('#aShop').value.trim(), group }) });
+      closeModal();
+      if (r.autoFilled) {
+        const bits = [];
+        if (r.shopName) bits.push(`店铺「${r.shopName}」`);
+        if (r.baseline != null) bits.push(`基线 ${fmt(r.baseline)}`);
+        if (group) bits.push(`归入「${group}」`);
+        toast(`已添加：${bits.join(' · ')}`);
+      } else toast('已添加');
+      await refresh();
+    } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = '添加'; }
+  };
+  $('#aUrl').addEventListener('keydown', e => { if (e.key === 'Enter') $('#aOk').click(); });
+}
+
+async function openSched() {
+  const sc = await api('/api/schedule').catch(() => null);
+  if (!sc) return toast('读取设置失败');
+  const times = sc.times || ['09:00'];
+  const slotRow = v => `<div class="slot"><input type="time" value="${esc(v)}"><button class="sm ghost danger slot-del">删</button></div>`;
+  openModal(`
+    <div class="ch">自动采集设置</div>
+    <label class="tgl"><input type="checkbox" id="sEnabled" ${sc.enabled ? 'checked' : ''}> 开启自动采集</label>
+    <div class="formrow" style="margin-top:10px">
+      <div style="grid-column:1/-1">
+        <label>每天采集时间（24 小时制，可多个）</label>
+        <div id="sSlots">${times.map(slotRow).join('')}</div>
+        <button class="sm ghost" id="sAddSlot" style="margin-top:4px">+ 添加时间</button>
+      </div>
+    </div>
+    <label class="tgl"><input type="checkbox" id="sOnStart" ${sc.runOnStart ? 'checked' : ''}> 启动服务时立刻采一次</label>
+    <div class="hintbox">
+      到点后服务会自动访问商品详情接口记录一次快照。<br>
+      下次执行：<b>${esc(sc.nextRunText || '未设置')}</b><br>
+      上次执行：${sc.lastRunAt ? esc(shortT(sc.lastRunAt)) : '尚未自动执行'}<br>
+      注意：电脑需要保持服务运行；关机或休眠期间无法采集。
+    </div>
+    <div class="mrow">
+      <button class="ghost" id="sCancel">取消</button>
+      <button class="primary" id="sSave">保存</button>
+    </div>`);
+  const bindDel = () => $('#sSlots').querySelectorAll('.slot-del').forEach(b => {
+    b.onclick = () => b.closest('.slot').remove();
+  });
+  $('#sAddSlot').onclick = () => { $('#sSlots').insertAdjacentHTML('beforeend', slotRow('12:00')); bindDel(); };
+  bindDel();
+  $('#sCancel').onclick = closeModal;
+  $('#sSave').onclick = async () => {
+    const list = [...$('#sSlots').querySelectorAll('input[type=time]')].map(i => i.value).filter(Boolean);
+    try {
+      const r = await api('/api/schedule', { method: 'POST', body: JSON.stringify({
+        enabled: $('#sEnabled').checked, runOnStart: $('#sOnStart').checked,
+        times: list.length ? list : ['09:00'] }) });
+      closeModal();
+      toast(r.enabled ? `已保存，下次执行 ${r.nextRunText || ''}` : '已关闭自动采集');
+      await refresh();
+    } catch (e) { toast(e.message); }
+  };
+}
+
+function openRecord(id) {
+  const p = state.products.find(x => x.id === id);
+  openModal(`
+    <div class="ch">手动补录 · ${esc(p.name)}</div>
+    <div class="dim" style="font-size:12px;margin-bottom:12px">当前累计：${fmt(p.cumulative)}。填你在小红书 App 上看到的数字。</div>
+    <input id="mVal" type="number" placeholder="例：12480" style="margin-bottom:12px">
+    <div class="mrow">
+      <button class="ghost" id="mCancel">取消</button>
+      <button class="primary" id="mOk">保存</button>
+    </div>`);
+  $('#mCancel').onclick = closeModal;
+  $('#mOk').onclick = async () => {
+    const v = $('#mVal').value.trim();
+    if (!v) return toast('请输入数字');
+    try {
+      const r = await api('/api/record', { method: 'POST', body: JSON.stringify({ id, value: v }) });
+      closeModal();
+      toast(r.delta != null ? `已记录，增量 ${deltaTxt(r.delta)}` : '已记录，这是第一条基线');
+      await refresh();
+    } catch (e) { toast(e.message); }
+  };
+}
+
+async function openHistory(id) {
+  openModal('<div class="ch">加载中…</div>');
+  try {
+    const d = await api('/api/history?id=' + encodeURIComponent(id));
+    const p = state.products.find(x => x.id === id);
+    const srcName = s => s === 'auto-api' ? '自动·接口' : s === 'auto-browser' ? '自动·浏览器' : s === 'manual' ? '手动' : s;
+    const rows = d.history.map(h => `<tr>
+      <td class="dim" style="white-space:nowrap">${new Date(h.ts).toLocaleString('zh-CN',{hour12:false})}</td>
+      <td class="num">${h.ok ? fmt(h.soldTotal) : '<span class="dim">失败</span>'}</td>
+      <td class="dim">${srcName(h.source)}${h.note ? ' · ' + esc(h.note) : ''}${h.failReason ? ' · ' + esc(h.failReason) : ''}</td></tr>`).join('');
+    openModal(`<div class="ch">${esc(p.name)} · 历史记录</div>
+      ${d.history.length ? `<div style="max-height:52vh;overflow-y:auto"><table><thead><tr><th>时间</th><th class="num">累计已售</th><th>来源</th></tr></thead><tbody>${rows}</tbody></table></div>`
+        : '<div class="empty dim">暂无记录</div>'}
+      <div class="mrow"><button class="ghost" id="hClose">关闭</button></div>`);
+    $('#hClose').onclick = closeModal;
+  } catch (e) { openModal(`<div class="ch">出错了</div><div class="dim">${esc(e.message)}</div>`); }
+}
+
+async function doCollect() {
+  try {
+    await api('/api/collect', { method: 'POST', body: '{}' });
+    toast('开始采集');
+    await refresh();
+  } catch (e) { toast(e.message); }
+}
+
+$('#btnManage').onclick = () => openManage();
+$('#btnSched').onclick = openSched;
+$('#btnCollect').onclick = doCollect;
+$('#selDays').onchange = refresh;
+document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh().catch(()=>{}); });
+
+refresh().catch(e => {
+  document.body.innerHTML = '<div class="wrap"><div class="card"><div class="ch">无法连接本地服务</div><div class="dim">' + esc(e.message) + '</div></div></div>';
+});
+</script>
+</body>
+</html>

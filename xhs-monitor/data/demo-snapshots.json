@@ -1,0 +1,405 @@
+{
+  "products": [
+    {
+      "id": "a1",
+      "name": "轻氧修护面膜 10片装",
+      "shop": "对标店A旗舰店",
+      "url": "https://example.com/a1",
+      "note": "",
+      "createdAt": "2026-10-20T01:46:54.052Z",
+      "archived": false
+    },
+    {
+      "id": "b2",
+      "name": "氨基酸洁面乳 120g",
+      "shop": "对标店B官方店",
+      "url": "https://example.com/b2",
+      "note": "",
+      "createdAt": "2026-10-20T01:46:54.052Z",
+      "archived": false
+    },
+    {
+      "id": "c3",
+      "name": "玻尿酸原液精华 30ml",
+      "shop": "对标店C",
+      "url": "https://example.com/c3",
+      "note": "",
+      "createdAt": "2026-10-20T01:46:54.052Z",
+      "archived": false
+    },
+    {
+      "id": "d4",
+      "name": "早C晚A精华组合",
+      "shop": "对标店A旗舰店",
+      "url": "https://example.com/d4",
+      "note": "",
+      "createdAt": "2026-10-20T01:46:54.052Z",
+      "archived": false
+    }
+  ],
+  "snapshots": [
+    {
+      "id": "a1|1792460814052",
+      "productId": "a1",
+      "ts": "2026-10-13T01:46:54.052Z",
+      "soldTotal": 12000,
+      "source": "auto",
+      "ok": true,
+      "failReason": null,
+      "price": null,
+      "note": ""
+    },
+    {
+      "id": "b2|1792460814052",
+      "productId": "b2",
+      "ts": "2026-10-13T01:46:54.052Z",
+      "soldTotal": 3400,
+      "source": "auto",
+      "ok": true,
+      "failReason": null,
+      "price": null,
+      "note": ""
+    },
+    {
+      "id": "c3|1792460814052",
+      "productId": "c3",
+      "ts": "2026-10-13T01:46:54.052Z",
+      "soldTotal": 8600,
+      "source": "auto",
+      "ok": true,
+      "failReason": null,
+      "price": null,
+      "note": ""
+    },
+    {
+      "id": "d4|1792460814052",
+      "productId": "d4",
+      "ts": "2026-10-13T01:46:54.052Z",
+      "soldTotal": 510,
+      "source": "auto",
+      "ok": true,
+      "failReason": null,
+      "price": null,
+      "note": ""
+    },
+    {
+      "id": "a1|1792460814052",
+      "productId": "a1",
+      "ts": "2026-10-14T01:46:54.052Z",
+      "soldTotal": 12038,
+      "source": "auto",
+      "ok": true,
+      "failReason": null,
+      "price": null,
+      "note": ""
+    },
+    {
+      "id": "b2|1792460814052",
+      "productId": "b2",
+      "ts": "2026-10-14T01:46:54.052Z",
+      "soldTotal": 3412,
+      "source": "auto",
+      "ok": true,
+      "failReason": null,
+      "price": null,
+      "note": ""
+    },
+    {
+      "id": "c3|1792460814052",
+      "productId": "c3",
+      "ts": "2026-10-14T01:46:54.052Z",
+      "soldTotal": 8625,
+      "source": "auto",
+      "ok": true,
+      "failReason": null,
+      "price": null,
+      "note": ""
+    },
+    {
+      "id": "d4|1792460814052",
+      "productId": "d4",
+      "ts": "2026-10-14T01:46:54.052Z",
+      "soldTotal": 513,
+      "source": "auto",
+      "ok": true,
+      "failReason": null,
+      "price": null,
+      "note": ""
+    },
+    {
+      "id": "a1|1792460814052",
+      "productId": "a1",
+      "ts": "2026-10-15T01:46:54.052Z",
+      "soldTotal": 12090,
+      "source": "auto",
+      "ok": true,
+      "failReason": null,
+      "price": null,
+      "note": ""
+    },
+    {
+      "id": "b2|1792460814052",
+      "productId": "b2",
+      "ts": "2026-10-15T01:46:54.052Z",
+      "soldTotal": 3421,
+      "source": "auto",
+      "ok": true,
+      "failReason": null,
+      "price": null,
+      "note": ""
+    },
+    {
+      "id": "c3|1792460814052",
+      "productId": "c3",
+      "ts": "2026-10-15T01:46:54.052Z",
+      "soldTotal": 8656,
+      "source": "auto",
+      "ok": true,
+      "failReason": null,
+      "price": null,
+      "note": ""
+    },
+    {
+      "id": "d4|1792460814052",
+      "productId": "d4",
+      "ts": "2026-10-15T01:46:54.052Z",
+      "soldTotal": 518,
+      "source": "auto",
+      "ok": true,
+      "failReason": null,
+      "price": null,
+      "note": ""
+    },
+    {
+      "id": "a1|1792460814052",
+      "productId": "a1",
+      "ts": "2026-10-16T01:46:54.052Z",
+      "soldTotal": 12131,
+      "source": "auto",
+      "ok": true,
+      "failReason": null,
+      "price": null,
+      "note": ""
+    },
+    {
+      "id": "b2|1792460814052",
+      "productId": "b2",
+      "ts": "2026-10-16T01:46:54.052Z",
+      "soldTotal": 3436,
+      "source": "auto",
+      "ok": true,
+      "failReason": null,
+      "price": null,
+      "note": ""
+    },
+    {
+      "id": "c3|1792460814052",
+      "productId": "c3",
+      "ts": "2026-10-16T01:46:54.052Z",
+      "soldTotal": 8684,
+      "source": "auto",
+      "ok": true,
+      "failReason": null,
+      "price": null,
+      "note": ""
+    },
+    {
+      "id": "d4|1792460814052",
+      "productId": "d4",
+      "ts": "2026-10-16T01:46:54.052Z",
+      "soldTotal": 520,
+      "source": "auto",
+      "ok": true,
+      "failReason": null,
+      "price": null,
+      "note": ""
+    },
+    {
+      "id": "a1|1792460814052",
+      "productId": "a1",
+      "ts": "2026-10-17T01:46:54.052Z",
+      "soldTotal": 12191,
+      "source": "auto",
+      "ok": true,
+      "failReason": null,
+      "price": null,
+      "note": ""
+    },
+    {
+      "id": "b2|1792460814052",
+      "productId": "b2",
+      "ts": "2026-10-17T01:46:54.052Z",
+      "soldTotal": 3447,
+      "source": "auto",
+      "ok": true,
+      "failReason": null,
+      "price": null,
+      "note": ""
+    },
+    {
+      "id": "c3|1792460814052",
+      "productId": "c3",
+      "ts": "2026-10-17T01:46:54.052Z",
+      "soldTotal": 8728,
+      "source": "auto",
+      "ok": true,
+      "failReason": null,
+      "price": null,
+      "note": ""
+    },
+    {
+      "id": "d4|1792460814052",
+      "productId": "d4",
+      "ts": "2026-10-17T01:46:54.052Z",
+      "soldTotal": 528,
+      "source": "auto",
+      "ok": true,
+      "failReason": null,
+      "price": null,
+      "note": ""
+    },
+    {
+      "id": "a1|1792460814052",
+      "productId": "a1",
+      "ts": "2026-10-18T01:46:54.052Z",
+      "soldTotal": 12264,
+      "source": "auto",
+      "ok": true,
+      "failReason": null,
+      "price": null,
+      "note": ""
+    },
+    {
+      "id": "b2|1792460814052",
+      "productId": "b2",
+      "ts": "2026-10-18T01:46:54.052Z",
+      "soldTotal": 3465,
+      "source": "auto",
+      "ok": true,
+      "failReason": null,
+      "price": null,
+      "note": ""
+    },
+    {
+      "id": "c3|1792460814052",
+      "productId": "c3",
+      "ts": "2026-10-18T01:46:54.052Z",
+      "soldTotal": 8767,
+      "source": "auto",
+      "ok": true,
+      "failReason": null,
+      "price": null,
+      "note": ""
+    },
+    {
+      "id": "d4|1792460814052",
+      "productId": "d4",
+      "ts": "2026-10-18T01:46:54.052Z",
+      "soldTotal": 534,
+      "source": "auto",
+      "ok": true,
+      "failReason": null,
+      "price": null,
+      "note": ""
+    },
+    {
+      "id": "a1|1792460814052",
+      "productId": "a1",
+      "ts": "2026-10-19T01:46:54.052Z",
+      "soldTotal": 12319,
+      "source": "auto",
+      "ok": true,
+      "failReason": null,
+      "price": null,
+      "note": ""
+    },
+    {
+      "id": "b2|1792460814053",
+      "productId": "b2",
+      "ts": "2026-10-19T01:46:54.052Z",
+      "soldTotal": 3487,
+      "source": "auto",
+      "ok": true,
+      "failReason": null,
+      "price": null,
+      "note": ""
+    },
+    {
+      "id": "c3|1792460814053",
+      "productId": "c3",
+      "ts": "2026-10-19T01:46:54.052Z",
+      "soldTotal": 8819,
+      "source": "auto",
+      "ok": true,
+      "failReason": null,
+      "price": null,
+      "note": ""
+    },
+    {
+      "id": "d4|1792460814053",
+      "productId": "d4",
+      "ts": "2026-10-19T01:46:54.052Z",
+      "soldTotal": 538,
+      "source": "auto",
+      "ok": true,
+      "failReason": null,
+      "price": null,
+      "note": ""
+    },
+    {
+      "id": "a1|1792460814053",
+      "productId": "a1",
+      "ts": "2026-10-20T01:46:54.053Z",
+      "soldTotal": 12400,
+      "source": "auto",
+      "ok": true,
+      "failReason": null,
+      "price": null,
+      "note": ""
+    },
+    {
+      "id": "b2|1792460814053",
+      "productId": "b2",
+      "ts": "2026-10-20T01:46:54.053Z",
+      "soldTotal": 3627,
+      "source": "auto",
+      "ok": true,
+      "failReason": null,
+      "price": null,
+      "note": ""
+    },
+    {
+      "id": "c3|1792460814053",
+      "productId": "c3",
+      "ts": "2026-10-20T01:46:54.053Z",
+      "soldTotal": 8866,
+      "source": "auto",
+      "ok": true,
+      "failReason": null,
+      "price": null,
+      "note": ""
+    },
+    {
+      "id": "d4|1792460814053",
+      "productId": "d4",
+      "ts": "2026-10-20T01:46:54.053Z",
+      "soldTotal": 545,
+      "source": "auto",
+      "ok": true,
+      "failReason": null,
+      "price": null,
+      "note": ""
+    },
+    {
+      "id": "c3|1792460814053",
+      "productId": "c3",
+      "ts": "2026-10-20T00:46:54.053Z",
+      "soldTotal": null,
+      "source": "auto",
+      "ok": false,
+      "failReason": "登录态失效",
+      "price": null,
+      "note": ""
+    }
+  ]
+}

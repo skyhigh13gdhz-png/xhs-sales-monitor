@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{TITLE}}</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 28px 22px 60px;
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--color-background-tertiary, #f7f7f5);
+    color: var(--color-text-primary, #1a1a1a);
+    font-size: 13px; line-height: 1.6;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; }
+  h1 { font-size: 19px; font-weight: 500; margin: 0 0 4px; }
+  .sub { color: var(--color-text-secondary, #666); font-size: 12px; margin-bottom: 22px; }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 10px; margin-bottom: 16px; }
+  .kpi { background: var(--color-background-primary, #fff); border: 0.5px solid var(--color-border-tertiary, #e3e3df);
+         border-radius: 10px; padding: 13px 15px; min-width: 0; }
+  .kl { font-size: 11px; color: var(--color-text-secondary, #666); margin-bottom: 5px; }
+  .kv { font-size: 21px; font-weight: 500; font-variant-numeric: tabular-nums;
+        overflow-wrap: break-word; min-width: 0; }
+  .kv.sm { font-size: 13px; font-weight: 400; }
+  .kv.pos { color: #D85A30; }
+  .card { background: var(--color-background-primary, #fff); border: 0.5px solid var(--color-border-tertiary, #e3e3df);
+          border-radius: 12px; padding: 16px 18px; margin-bottom: 14px; min-width: 0; }
+  .ch { font-size: 13px; font-weight: 500; margin-bottom: 13px; }
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 14px; }
+  .grid2 .card { margin-bottom: 14px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { text-align: left; font-weight: 500; color: var(--color-text-secondary, #666);
+       padding: 7px 9px; border-bottom: 0.5px solid var(--color-border-tertiary, #e3e3df); white-space: nowrap; }
+  td { padding: 9px; border-bottom: 0.5px solid var(--color-border-tertiary, #e3e3df); vertical-align: middle; }
+  tr:last-child td { border-bottom: none; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .up { color: #D85A30; font-weight: 500; }
+  .dim { color: var(--color-text-tertiary, #999); }
+  .nm { min-width: 0; overflow-wrap: break-word; }
+  .sh { font-size: 11px; color: var(--color-text-tertiary, #999); }
+  .warn { display: inline-block; margin-left: 5px; padding: 1px 5px; font-size: 10px;
+          background: #FCEBEB; color: #A32D2D; border-radius: 4px; }
+  .note { font-size: 11px; color: var(--color-text-tertiary, #999); margin-top: 9px; }
+  .empty { color: var(--color-text-secondary, #666); padding: 30px 0; }
+  code { background: var(--color-background-secondary, #f0f0ec); padding: 2px 6px;
+         border-radius: 4px; font-size: 11px; font-family: ui-monospace, Menlo, monospace; overflow-wrap: break-word; }
+  svg { width: 100%; height: auto; display: block; min-width: 0; }
+  .foot { font-size: 11px; color: var(--color-text-tertiary, #999); margin-top: 18px;
+          padding-top: 14px; border-top: 0.5px solid var(--color-border-tertiary, #e3e3df);
+          line-height: 1.7; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>小红书对标销量监控</h1>
+  <div class="sub">数据源：商品页公开展示的「已售」数字，按快照差值计算增量</div>
+  {{BODY}}
+  <div class="foot">
+    <b>口径说明：</b>此处「累计已售」为商品页对所有访客公开显示的数字，<b>不等于真实订单量</b>。
+    退款、平台展示延迟、口径调整、商品链接变更都可能影响数值，因此请仅用于趋势判断，不要作为财务报表或竞品算账的依据。<br>
+    工具只读取页面上任何访客都能看到的公开内容，不修改原始数据、不绕过平台技术措施。
+  </div>
+</div>
+</body>
+</html>

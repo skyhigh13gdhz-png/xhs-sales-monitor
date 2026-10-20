@@ -1,0 +1,24 @@
+# ---------- 运行时数据：含真实销量 / 价格，且每次采集都会变 ----------
+# 不入库的原因：会造成大量无意义 diff，且属于你的业务数据而非代码
+xhs-monitor/data/snapshots.json
+xhs-monitor/data/snapshots.json.*
+xhs-monitor/data/auto-log.json
+xhs-monitor/data/schedule.json
+
+# ---------- 登录态：等同于凭据，绝不能入库 ----------
+xhs-monitor/auth/
+*.storage-state.json
+*.cookies.json
+
+# ---------- 生成物 ----------
+xhs-monitor/report.html
+*.log
+backups/
+
+# ---------- 依赖与系统文件 ----------
+node_modules/
+.DS_Store
+*.swp
+
+# ---------- WorkBuddy 会话数据 ----------
+.workbuddy/
