@@ -855,7 +855,8 @@ function renderGroupOverview() {
     </tr></thead>
     <tbody>${rows}</tbody></table>
     <div class="foot" style="border:none;padding-top:10px;margin-top:4px">
-      这是各组汇总，按<b>${esc(sortLabel())}</b>${sortDir === 'desc' ? '从高到低' : '从低到高'}排。点任意一行进入该组，看组内各店铺的横向明细。
+      这是各组汇总，按<b>${esc(sortLabel())}</b>${sortDir === 'desc' ? '从高到低' : '从低到高'}排。点任意一行进入该组，看组内各店铺的横向明细。<br>
+      <span class="cartnote">「24h 加购」是平台展示的近 24 小时加购人数，只取最新一次读数，不参与任何差值计算。</span>
     </div>`;
 
   $('#tableBox').querySelectorAll('.grow').forEach(tr => {
@@ -913,12 +914,18 @@ function perHourCell(p) {
 它是平台给的即时快照（"近 24 小时有多少人加购"），既不是累计也不是增量：
   - 不参与任何差值计算，只认最新那一次读到的数；
   - 读不到就显示「—」，绝不写 0 —— 0 会让人以为"一个加购都没有"。
-免登录接口目前基本不给这个字段（实测 11 个商品全是「已售X」），
-所以常态就是「—」；哪天平台给了，这里直接就有数。
+
+现状（2026-10-21 实测，证据在 docs/数据口径与回退机制.md）：
+免登录接口**不提供**这个字段。12 个商品、220 个 JSON 叶子全枚举过，
+`priceH5.itemAnalysisDataText` 那一格轮换展示的是「已售X」；
+浏览器渲染后的商品页文本里也没有加购文案（只有"加入购物车"按钮）。
+候选接口（analysis / item_analysis / wish）全部 404。
+→ 所以常态就是「—」。这是**平台不公开**，不是采集坏了，界面上要说清楚。
+   哪天平台把这一格换成加购数，解析管道已经就位，直接就有数。
 */
 function cartCell(v, ts, isSum) {
   if (v === null || v === undefined) {
-    return '<span class="cnone" title="这次采集没返回加购数（免登录接口多数情况下不公开该字段）">—</span>';
+    return '<span class="cnone" title="平台当前不公开加购人数（实测：接口与商品页都没有这个字段）。不是采集失败——销量、价格都正常。">—</span>';
   }
   const when = ts ? `，${shortT(ts)} 读到` : '';
   const what = isSum ? '店内各商品最新一次加购数之和' : '24 小时内加购人数';
@@ -1083,6 +1090,7 @@ function renderProductTable() {
   }).join('');
 
   const noCart = sortKey === 'cart' && !g.shops.some(sh => sh.totalCart !== null);
+  const allCartEmpty = !g.shops.some(sh => sh.products.some(p => p.cartCount !== null && p.cartCount !== undefined));
   $('#tableBox').innerHTML = `<table class="shoptable">
     <thead><tr>
       <th>店铺 / 商品</th><th class="num">累计已售</th><th class="num">今日增量</th><th class="num">24h 加购</th>
@@ -1091,9 +1099,12 @@ function renderProductTable() {
     <tbody>${rows}</tbody></table>
     <div class="foot" style="border:none;padding-top:10px;margin-top:4px">
       按<b>${esc(sortLabel())}</b>${sortDir === 'desc' ? '从高到低' : '从低到高'}排，没有数据的排在最后；点店铺行可折叠 / 展开。<br>
-      <span class="cartnote">「24h 加购」是平台展示的近 24 小时加购人数，只取最新一次读数，不参与任何差值计算；
-      接口不公开时显示「—」。</span>
-      ${noCart ? '<br><span class="cartnote">当前还没有任何商品采到加购数，这一列暂时全是「—」。</span>' : ''}
+      ${allCartEmpty
+        ? '<span class="cartnote"><b>「24h 加购」这一列现在全是「—」：平台当前不公开加购人数。</b>'
+          + '实测 12 个商品的接口返回与商品页都没有这个字段（只有"已售"），候选接口也全部 404。'
+          + '这不是采集失败——销量和价格都正常。平台哪天把这一格换成加购数，这里直接就有数。</span>'
+        : '<span class="cartnote">「24h 加购」是平台展示的近 24 小时加购人数，只取最新一次读数，不参与任何差值计算。</span>'}
+      ${noCart ? '<br><span class="cartnote">按加购排序时，没采到加购数的排在最后。</span>' : ''}
     </div>`;
 
   // 点击店铺行折叠 / 展开（有多个商品时才可折叠）

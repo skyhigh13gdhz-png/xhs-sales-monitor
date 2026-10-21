@@ -58,7 +58,7 @@ async function viaBrowser(ctx, product) {
     out.matched = r.matched;
     // 加购数顺手也抓一下：浏览器通道看得到页面上「24小时内N人加购」那一行
     const cart = api.parseCart(text);
-    if (cart !== null) out.cartCount = cart;
+    if (cart !== null) { out.cartCount = cart; out.cartRaw = api.cartMatch(text); }
     const pm = text.match(/[¥￥]\s*([0-9]+(?:\.[0-9]+)?)/);
     if (pm) out.price = parseFloat(pm[1]);
     if (r.value === null) { out.failReason = '页面未找到销量字段'; return out; }
@@ -76,6 +76,19 @@ async function viaBrowser(ctx, product) {
 主流程：每个商品先走免登录接口；
 若因风控/接口变更失败，且本地有登录态，则回退浏览器通道。
 「商品不存在 / 不公开销量」属确定性结论，不做无谓回退。
+
+关于加购数（2026-10-21 实测）：
+免登录接口里**没有**加购字段 —— 12 个商品、220 个 JSON 叶子全枚举过，
+`priceH5.itemAnalysisDataText` 那一格轮换展示的是「已售X」。
+但那一格是平台自己的「商品分析数据位」，它今天放已售、明天可能放加购。
+所以接口通道该做的都做了（认文案 + 全接口兜底扫描），平台给了就有。
+
+浏览器通道只在**接口失败**时才走（原逻辑），这里有个缺口：
+接口成功但没带加购数时，页面上就算有也抓不到。
+→ 加一条补采：接口没拿到加购数时，用浏览器看一眼页面。
+但**必须有登录态**才做（没登录态时页面被风控挡住，innerText 是空的，
+   白跑一趟还可能拖慢采集）。当前 auth/storage-state.json 不存在，
+   所以这条补采暂时不触发 —— 留好接口，登录态一到位就自动生效。
 */
 async function run(products, opts = {}) {
   const delay = opts.delay === undefined ? 3000 : opts.delay;
@@ -101,6 +114,18 @@ async function run(products, opts = {}) {
         if (b.ok) { b.via = 'browser(接口回退)'; r = b; }
         else if (b.failReason && b.failReason !== r.failReason) {
           r.failReason = `${r.failReason} ｜ 浏览器回退也失败：${b.failReason}`;
+        }
+      } else if (r.ok && ctx && r.cartCount === null) {
+        /*
+        接口成功但没带加购数 → 用浏览器补看一眼页面。
+        浏览器通道的 parseCart 认的是渲染后的页面文本，
+        如果平台把加购数放在页面上而不是接口里，这里能捞回来。
+        */
+        const b = await viaBrowser(ctx, p);
+        if (b.cartCount !== null && b.cartCount !== undefined) {
+          r.cartCount = b.cartCount;
+          r.cartRaw = b.cartRaw || null;
+          r.cartVia = 'browser(加购补采)';
         }
       }
 

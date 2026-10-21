@@ -94,6 +94,28 @@ function parseCart(raw) {
   return Math.round(n);
 }
 
+/*
+返回命中加购的那段原文（用于留痕）。
+平台轮换展示时这一格可能是「24小时内120人加购」，也可能是「1.2万人加购」，
+原文留着能看出当时到底读到了什么，出问题时对得上账。
+
+注意：不能直接用 CART_RE 的 m[0] —— 那个正则从数字开始匹配，
+「24小时内123人加购」只会截到「123人加购」，把「24小时内」这个
+**时间窗口**丢了。留痕要能看出是"24小时内"还是"近7天"，所以往前多带一段。
+*/
+function cartMatch(raw) {
+  if (!raw) return null;
+  const s = String(raw);
+  const m = s.match(CART_RE);
+  if (!m) return null;
+  // 往前回溯，把时间窗口/前缀带上（如「24小时内」「近7天」「已有」）
+  const start = Math.max(0, m.index - 12);
+  const head = s.slice(start, m.index);
+  // 只带上紧邻的量词片段，别把整句话都吞进来
+  const pre = (head.match(/(?:近|已|有|过去)?\s*[0-9]+\s*(?:小时|天|周|个月)?\s*(?:内|以内|内已有)?\s*$/) || [''])[0];
+  return (pre + m[0]).trim();
+}
+
 function parseSold(raw) {
   if (!raw) return null;
   const s = String(raw).replace(/\s+/g, '');
@@ -270,7 +292,7 @@ async function fetchItem(itemId) {
   */
   const cartFromText = parseCart(soldText);
   const cartCount = cartFromText !== null ? cartFromText : findCartDeep(j);
-  const cartRaw = cartFromText !== null ? String(soldText).trim() : null;
+  const cartRaw = cartFromText !== null ? cartMatch(soldText) : null;
 
   if (sold === null) {
     /*
@@ -324,4 +346,4 @@ async function resolveItemId(url) {
   return extractItemId(out);
 }
 
-module.exports = { fetchItem, resolveItemId, extractItemId, parseShareText, parseSold, parseCart, findCartDeep, soldResolution, extractPrice, API };
+module.exports = { fetchItem, resolveItemId, extractItemId, parseShareText, parseSold, parseCart, cartMatch, findCartDeep, soldResolution, extractPrice, API };
