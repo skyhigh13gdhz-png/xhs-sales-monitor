@@ -48,13 +48,20 @@ async function get(path) {
   console.log(`\n[临时实例 ${PORT}，库 ${TMP_DB}]`);
 
   console.log('\n[准备：清空并创建两个测试商品]');
-  await post('/api/products', { name: '__清理__', url: 'https://example.com/cleanup' });
+  /* 假 itemId 必须是 16–32 位十六进制：这既是 extractItemId 的正则要求，
+     也是「解析不出商品ID就不放行」这条规则的触发条件。用 aaa111 这种短串
+     会被当成"没能确认指向哪个商品"而拒掉，测试也就测不到想测的东西了。 */
+  const ID_A = '6aacb6ecfc719700019b0001', ID_B = '6aacb6ecfc719700019b0002';
+  const urlA = 'https://www.xiaohongshu.com/goods-detail/' + ID_A;
+  const urlB = 'https://www.xiaohongshu.com/goods-detail/' + ID_B;
+
+  await post('/api/products', { name: '__清理__', url: urlA });
   const cur = await get('/api/state');
   for (const p of cur.products) {
     await fetch(B + '/api/products?id=' + encodeURIComponent(p.id), { method: 'DELETE' });
   }
-  const r1 = await post('/api/products', { name: '轻氧修护面膜10片装', url: 'https://www.xiaohongshu.com/goods-detail/aaa111', shop: '对标店A旗舰店' });
-  const r2 = await post('/api/products', { name: '氨基酸洁面乳120g', url: 'https://www.xiaohongshu.com/goods-detail/bbb222', shop: '对标店B官方店' });
+  const r1 = await post('/api/products', { name: '轻氧修护面膜10片装', url: urlA, shop: '对标店A旗舰店' });
+  const r2 = await post('/api/products', { name: '氨基酸洁面乳120g', url: urlB, shop: '对标店B官方店' });
   const ids = [r1.body.id, r2.body.id];
   const [a, b] = ids;
   console.log(`  商品 A = ${a}`);
@@ -128,8 +135,15 @@ async function get(path) {
   t('序列至少 4 个有效点', (c.series[a] || []).length >= 4, (c.series[a] || []).length);
 
   console.log('\n[重复链接防护]');
-  const dup = await post('/api/products', { name: '重复链接', url: 'https://www.xiaohongshu.com/goods-detail/aaa111' });
+  const dup = await post('/api/products', { name: '重复链接', url: urlA });
   t('相同URL被拒绝', dup.status === 400 && /已经在监控/.test(dup.body.error), dup.body);
+
+  const dup2 = await post('/api/products', { name: '同商品换个链接形式', url: urlA + '?xsec_token=XYZ' });
+  t('同一 itemId、URL 多带参数也被拒绝', dup2.status === 400 && /已经在监控/.test(dup2.body.error), dup2.body);
+
+  const bad = await post('/api/products', { name: '解析不出的短链', url: 'https://xhslink.com/m/NOTAREAL999' });
+  t('解析不出商品ID时不放行（否则会留下查不了重的脏数据）',
+    bad.status === 400 && /没能确认这个链接/.test(bad.body.error), bad.body);
 
   console.log(`\n结果: ${pass} 通过, ${fail} 失败\n`);
   await stopServer();

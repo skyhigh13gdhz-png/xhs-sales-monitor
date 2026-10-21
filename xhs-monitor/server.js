@@ -232,10 +232,21 @@ const routes = {
       } catch (e) {
         auto = null;
       }
-    }
 
-    // 按商品ID去重：同一个商品用短链、长链、分享文案分别添加时链接串不同，但指向同一商品
-    if (itemId) {
+      /*
+      解析不出商品 ID 时不要放行。
+      长链（goods-detail/…）不需要网络就能提取，走到这里还没拿到，说明是短链
+      跳转没解析出来（网络抖动、被风控、链接失效）。此时只剩 URL 精确匹配，
+      同一商品换个链接形式就能重复添加；而且这种记录没有 itemId，
+      以后永远查不了重，每次采集还大概率失败。
+      宁可让用户改用长链重试，也不要留一条查不了重的脏数据。
+      */
+      if (!itemId) {
+        throw new Error('没能确认这个链接指向哪个商品（短链跳转没解析出来）。'
+          + '请改用商品详情页长链（xiaohongshu.com/goods-detail/…），或稍后重试');
+      }
+
+      // 按商品ID去重：同一个商品用短链、长链、分享文案分别添加时链接串不同，但指向同一商品
       const dup = existing.find(p => p.itemId === itemId);
       if (dup) throw new Error(`这个商品已经在监控列表里了（${String(dup.name).slice(0, 24)}）`);
     }
