@@ -4,6 +4,11 @@
 
 主工具在 `xhs-monitor/`，详细文档见 [xhs-monitor/README.md](xhs-monitor/README.md)。
 
+> **「已售」数字会掉下去，而且我们在这上面判错过一次。**
+> 处理规则、证据链和代码位置都记在
+> [数据口径与回退机制](xhs-monitor/docs/数据口径与回退机制.md)，
+> 改统计逻辑前先看那份。
+
 ## 仓库结构
 
 ```
@@ -14,7 +19,8 @@
 │   ├── api_collect.js   免登录 JSON 接口采集（主通道）
 │   ├── collect.js       双通道调度：接口优先，登录态浏览器回退
 │   ├── store.js         数据存储、增量计算、分组/店铺聚合
-│   ├── scheduler.js     定时采集（到点判断、槽位去重）
+│   ├── scheduler.js     定时采集（到点判断、槽位去重、可信时段守卫）
+│   ├── docs/            深度文档（数据口径与回退机制）
 │   ├── test_*.js        各层测试
 │   └── README.md        使用说明、数据口径、常见问题
 ├── probes/              早期探活脚本（记录如何发现免登录接口，仅存档）
@@ -74,6 +80,10 @@ bash run_tests.sh core     # 只要不需要浏览器的那批（约 20 秒）
 启动参数统一是 `chromium.launch({ channel: 'chrome' })`。
 
 ## 统计口径
+
+> 完整版（含证据链、代码位置、踩坑记录）见
+> [xhs-monitor/docs/数据口径与回退机制.md](xhs-monitor/docs/数据口径与回退机制.md)。
+> 下面是速查。
 
 **周期**（每次采集 / 日 / 周 / 月，默认按日）
 
