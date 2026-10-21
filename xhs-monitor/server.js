@@ -84,6 +84,9 @@ function overview(days) {
       cumulative: d.cumulative ?? null,
       delta: d.delta ?? null,
       todayDelta: d.todayDelta ?? null,
+      // 今早首采低于昨夜时被排除在今日增量之外的那笔下修，界面要标出来
+      todayCut: d.todayCut || 0,
+      todayBase: d.todayBase ?? null,
       hours: d.hours ?? null,
       perHour: d.perHour ?? null,
       perHourReliable: d.perHourReliable !== false,
@@ -378,6 +381,7 @@ const routes = {
     const next = sched.nextRun(cfg);
     json(res, 200, {
       enabled: cfg.enabled, times: cfg.times, runOnStart: cfg.runOnStart,
+      trustWindow: sched.TRUST_WINDOW,
       lastRunAt: cfg.lastRunAt,
       nextRunAt: next ? next.toISOString() : null,
       nextRunText: next ? next.toLocaleString('zh-CN', { hour12: false }) : null,
@@ -544,6 +548,7 @@ server.listen(PORT, HOST, () => {
   console.log(`  自动采集: ${cfg.enabled ? '已开启' : '已关闭'}`);
   if (cfg.enabled) {
     console.log(`  采集时间: ${cfg.times.join('、')}`);
+    console.log(`  可信时段: ${sched.TRUST_WINDOW.start}–${sched.TRUST_WINDOW.end}（窗口外不采集，凌晨会读到旧快照）`);
     console.log(`  下次执行: ${next ? next.toLocaleString('zh-CN', { hour12: false }) : '未设置'}`);
     if (cfg.lastRunAt) console.log(`  上次执行: ${new Date(cfg.lastRunAt).toLocaleString('zh-CN', { hour12: false })}`);
   }
@@ -560,8 +565,14 @@ server.listen(PORT, HOST, () => {
     }
   }, 20000);
 
+  // 启动即采集也要看可信时段：凌晨重启服务时它会抢跑一次，正好采到旧快照
   if (cfg.enabled && cfg.runOnStart && store.load().products.length) {
-    console.log('[定时] 启动即采集，已触发');
-    setTimeout(() => startCollect(null, 'auto', 'startup'), 3000);
+    if (sched.inTrustWindow()) {
+      console.log('[定时] 启动即采集，已触发');
+      setTimeout(() => startCollect(null, 'auto', 'startup'), 3000);
+    } else {
+      const w = sched.TRUST_WINDOW;
+      console.log(`[定时] 启动即采集已跳过：当前不在可信时段 ${w.start}–${w.end}`);
+    }
   }
 });

@@ -229,6 +229,8 @@ function groupByShop(db, groupName, days) {
       cumulative: d.cumulative ?? null,
       delta: d.delta ?? null,
       todayDelta: d.todayDelta ?? null,
+      todayCut: d.todayCut || 0,
+      todayBase: d.todayBase ?? null,
       soldApprox: !!d.soldApprox,
       soldStep: d.soldStep ?? null,
       hours: d.hours ?? null,
@@ -301,6 +303,8 @@ function groupCompare(db, days) {
       cumulative: d.cumulative ?? null,
       delta: d.delta ?? null,
       todayDelta: d.todayDelta ?? null,
+      todayCut: d.todayCut || 0,
+      todayBase: d.todayBase ?? null,
       soldApprox: !!d.soldApprox,
       soldStep: d.soldStep ?? null,
       hours: d.hours ?? null,
@@ -505,7 +509,26 @@ function startOfDay(ts) {
   return d.getTime();
 }
 
-function todayDelta(db, productId, refTs) {
+/*
+今日基线的选取。抽成独立函数是因为「基线选了哪个」本身就是要给用户看的信息。
+
+规则：在两个候选里取低的那个
+  A 昨日最后一条可信读数
+  B 今天第一条可信读数
+- 绝大多数情况 B > A（夜里也在卖）→ 选 A，夜间那几个小时的销量算进今天
+- B < A 说明昨夜到今早这段，平台的累计口径往下修了一笔（退款/口径修正），
+  修的量盖过了这段时间的新增销量。这笔修正不是今天的经营结果，
+  不该把今天的数字压成负数，于是改用 B 当基线。
+
+和「按日销量图」的关系（两者会差一个数，这是有意的）：
+  图按「本期最后 − 上期最后」算，看到的是 −55；
+  今日增量把日切修正吸收掉，看到的是 +5。
+  两者相差恰好等于 absorbed，即 今日增量 = 图上今天的值 + absorbed。
+
+被吸收掉的金额通过 absorbed 返回，界面上会标出来——吞掉一笔账而不留痕，
+就等于没有发生过，这正是之前把"假回退"误判成退款的同类错误。
+*/
+function todayBaseline(db, productId, refTs) {
   // 用可信序列（已剔除过期读数），否则 0 点那条旧快照会把全天销量抬高几十件
   const snaps = soldSeries(db, productId);
   if (!snaps.length) return null;
@@ -515,24 +538,35 @@ function todayDelta(db, productId, refTs) {
   if (new Date(last.ts).getTime() < dayStart) return null;   // 今天没有采集记录
 
   const tOf = s => new Date(s.ts).getTime();
+  const firstToday = snaps.find(s => tOf(s) >= dayStart) || null;
 
-  /*
-  基点只取一个：今天 00:00 之前最后一次可信读数。
-  曾经试过"日切那条单独当基点"，那是建立在"0 点数字下降 = 平台剔除退款"的假设上；
-  实测证明这个假设不成立（见 soldSeries 注释：降下去又涨回来，退款不会还件数）。
-  一旦用那条错误的低值当基点，当天销量会被整体抬高（电容笔会算成 90 而不是 11）。
-  所以不再给日切特殊待遇：昨天最后一条可信值，就是今天的起点。
-  */
   let base = null;
   for (const s of snaps) {
     if (tOf(s) < dayStart) base = s;
     else break;
   }
+
+  let absorbed = 0;
   if (!base) {
     // 今天才开始监控：用今天第一条当基线，至少不会把历史累计当成今日增量
-    base = snaps.find(s => tOf(s) >= dayStart) || last;
+    base = firstToday || last;
+  } else if (firstToday && firstToday.soldTotal < base.soldTotal) {
+    absorbed = base.soldTotal - firstToday.soldTotal;
+    base = firstToday;          // 今早首采更低：从它算起
   }
-  return last.soldTotal - base.soldTotal;
+
+  return {
+    base: base.soldTotal,
+    baseTs: base.ts,
+    absorbed,                   // > 0 表示有一笔日切修正被排除在今日增量之外
+    delta: last.soldTotal - base.soldTotal,
+    last: last.soldTotal
+  };
+}
+
+function todayDelta(db, productId, refTs) {
+  const b = todayBaseline(db, productId, refTs);
+  return b ? b.delta : null;
 }
 
 // 汇总今日增量：任一成员有今日数据才求和，全都没有则返回 null（不能报 0）
@@ -562,6 +596,7 @@ function stats(db, days) {
   for (const p of db.products) {
     if (p.archived) continue;
     const d = computeDelta(db, p.id);
+    const bl = todayBaseline(db, p.id);
     const series = soldSeries(db, p.id);
     const recent = series.filter(s => new Date(s.ts).getTime() >= since);
     const first = recent.length ? recent[0].soldTotal : null;
@@ -572,6 +607,9 @@ function stats(db, days) {
       name: p.name, shop: p.shop, url: p.url, note: p.note,
       ...d,
       todayDelta: todayDelta(db, p.id),
+      // 今早首采低于昨夜时被排除掉的那笔日切修正；>0 时界面要标出来，别让它悄悄消失
+      todayCut: bl ? bl.absorbed : 0,
+      todayBase: bl ? bl.base : null,
       windowDays: days,
       cumulativeInWindow,
       failedRuns: failed,
@@ -583,7 +621,7 @@ function stats(db, days) {
   return out;
 }
 
-module.exports = { load, save, upsertProduct, addSnapshot, lastValid, soldSeries, computeDelta, stats, todayDelta, startOfDay, classifyDrop, DROP_ABS_FLOOR, DROP_RATIO, DAYBREAK_WINDOW,
+module.exports = { load, save, upsertProduct, addSnapshot, lastValid, soldSeries, computeDelta, stats, todayDelta, todayBaseline, startOfDay, classifyDrop, DROP_ABS_FLOOR, DROP_RATIO, DAYBREAK_WINDOW,
   listGroups, createGroup, renameGroup, deleteGroup, dissolveGroup, previewDissolve,
   groupCompare, groupByShop, buildPriceIndex, NO_SHOP,
   priceSeries, priceChanges, currentPrice, UNGROUPED, DB_FILE };

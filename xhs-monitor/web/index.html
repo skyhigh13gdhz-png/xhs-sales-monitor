@@ -165,6 +165,8 @@
   .sh{font-size:11px;color:var(--tx3)}
   a{color:var(--tx2);text-decoration:none;border-bottom:.5px solid var(--line2)}
   .tag{display:inline-block;padding:1px 6px;font-size:10px;border-radius:4px;background:var(--red-l);color:var(--red)}
+  /* 今日增量旁的小记号：有日切下修被排除在外时显示，避免"看着在涨其实在跌" */
+  .cutmark{margin-left:3px;font-size:10px;color:var(--red);opacity:.85;cursor:help;white-space:nowrap}
   .tag.p{background:var(--warnbg);color:var(--warntx)}
   .tag.gtag{background:var(--bg);color:var(--tx2);border:.5px solid var(--line2);margin-left:6px;max-width:130px;overflow:hidden;text-overflow:ellipsis;vertical-align:middle}
 
@@ -195,6 +197,9 @@
   .tgl input{width:auto;flex:0 0 auto;margin:0}
   .slot{display:flex;gap:8px;align-items:center;margin-bottom:8px}
   .slot input{flex:0 0 130px}
+  /* 落在可信时段外的时间点：设了也不会执行，必须让用户当场看见 */
+  .slot input.bad{border-color:var(--red);background:var(--red-l)}
+  #sWarn{color:var(--red);border-color:var(--red);background:var(--red-l)}
   .hintbox{font-size:11px;color:var(--tx3);line-height:1.7;background:var(--bg);border:.5px solid var(--line);border-radius:8px;padding:10px 12px;margin-top:4px}
   .parsehint{font-size:11px;line-height:1.6;margin-top:6px;min-height:0;overflow-wrap:break-word}
   .parsehint:empty{display:none}
@@ -349,9 +354,16 @@ function fmt(n) { return n == null ? '—' : Number(n).toLocaleString(); }
 function deltaTxt(v) { return v == null ? '—' : (v > 0 ? '+' + v : String(v)); }
 
 // 今日增量：null 表示今天还没采过，不能显示成 0
-function todayCell(v) {
+function todayCell(v, cut) {
   if (v === null || v === undefined) return '<span class="dim" title="今天还没有采集记录">—</span>';
-  return deltaTxt(v);
+  /*
+  今早首采低于昨夜时，基线改用今早那条，两数之差（cut）被排除在今日增量之外。
+  这笔账不能悄悄吞掉：鼠标悬停要能看到，格子后面也标一个小记号。
+  否则会出现「今日 +5」但累计其实比昨夜还低的情况，看着像在涨，实际在跌。
+  */
+  if (!cut) return deltaTxt(v);
+  const tip = `今早首采比昨夜低 ${cut} 件，已改用它作今日基线，这笔下修未计入今日增量`;
+  return `${deltaTxt(v)}<span class="cutmark" title="${esc(tip)}">↧${cut}</span>`;
 }
 function shortT(iso) {
   if (!iso) return '—';
@@ -722,7 +734,7 @@ function renderProductTable() {
         <div class="sh">${p.url ? `<a href="${esc(p.url)}" target="_blank" rel="noopener">商品页</a>` : ''}${priceInline(p)}</div>
       </td>
       <td class="num" data-l="累计">${cumCell(p)}</td>
-      <td class="num ${p.todayDelta > 0 ? 'up' : ''}" data-l="今日">${todayCell(p.todayDelta)}</td>
+      <td class="num ${p.todayDelta > 0 ? 'up' : ''}" data-l="今日">${todayCell(p.todayDelta, p.todayCut)}</td>
       <td class="num dim" data-l="最近">${deltaCell(p)}</td>
       <td class="num dim hide-m" data-l="窗口">${deltaTxt(p.cumulativeInWindow)}</td>
       <td class="num dim" data-l="件/时">${perHourCell(p)}</td>
@@ -1596,6 +1608,7 @@ async function openSched() {
   const sc = await api('/api/schedule').catch(() => null);
   if (!sc) return toast('读取设置失败');
   const times = sc.times || ['09:00'];
+  const W = sc.trustWindow || { start: '07:30', end: '23:50' };
   const slotRow = v => `<div class="slot"><input type="time" value="${esc(v)}"><button class="sm ghost danger slot-del">删</button></div>`;
   openModal(`
     <div class="ch">自动采集设置</div>
@@ -1605,11 +1618,14 @@ async function openSched() {
         <label>每天采集时间（24 小时制，可多个）</label>
         <div id="sSlots">${times.map(slotRow).join('')}</div>
         <button class="sm ghost" id="sAddSlot" style="margin-top:4px">+ 添加时间</button>
+        <div id="sWarn" class="hintbox" style="margin-top:6px;display:none"></div>
       </div>
     </div>
     <label class="tgl"><input type="checkbox" id="sOnStart" ${sc.runOnStart ? 'checked' : ''}> 启动服务时立刻采一次</label>
     <div class="hintbox">
       到点后服务会自动访问商品详情接口记录一次快照。<br>
+      <b>只在 ${esc(W.start)}–${esc(W.end)} 采集</b>：凌晨平台会返回旧快照（实测
+      23:40 读到 556、00:15 读到 550、08:18 又回到 557），窗口外的读数不可信，所以直接不采。<br>
       下次执行：<b>${esc(sc.nextRunText || '未设置')}</b><br>
       上次执行：${sc.lastRunAt ? esc(shortT(sc.lastRunAt)) : '尚未自动执行'}<br>
       注意：电脑需要保持服务运行；关机或休眠期间无法采集。
@@ -1619,10 +1635,33 @@ async function openSched() {
       <button class="primary" id="sSave">保存</button>
     </div>`);
   const bindDel = () => $('#sSlots').querySelectorAll('.slot-del').forEach(b => {
-    b.onclick = () => b.closest('.slot').remove();
+    b.onclick = () => { b.closest('.slot').remove(); warnOutside(); };
   });
-  $('#sAddSlot').onclick = () => { $('#sSlots').insertAdjacentHTML('beforeend', slotRow('12:00')); bindDel(); };
+  $('#sAddSlot').onclick = () => { $('#sSlots').insertAdjacentHTML('beforeend', slotRow('12:00')); bindDel(); warnOutside(); };
+
+  /* 窗口外的时间点会被调度器直接跳过，但界面上不提示的话，
+     用户会以为自己设了、实则永远不执行——这正是这次踩的坑（00:00 那条）。 */
+  const toMin = s => { const [h, m] = String(s).split(':').map(Number); return h * 60 + m; };
+  const inWin = v => {
+    const m = /^(\d{1,2}):(\d{2})$/.exec(v || '');
+    if (!m) return true;                       // 空值/未填完不报错
+    const t = (+m[1]) * 60 + (+m[2]);
+    return t >= toMin(W.start) && t <= toMin(W.end);
+  };
+  function warnOutside() {
+    const bad = [...$('#sSlots').querySelectorAll('input[type=time]')]
+      .map(i => i.value).filter(v => v && !inWin(v));
+    const box = $('#sWarn');
+    [...$('#sSlots').querySelectorAll('input[type=time]')]
+      .forEach(i => i.classList.toggle('bad', !!i.value && !inWin(i.value)));
+    if (!bad.length) { box.style.display = 'none'; return; }
+    box.style.display = '';
+    box.innerHTML = `⚠️ <b>${bad.map(esc).join('、')}</b> 不在可信时段 ${esc(W.start)}–${esc(W.end)} 内，`
+      + `设了也不会执行（凌晨会读到旧快照）。`;
+  }
+  $('#sSlots').addEventListener('input', warnOutside);
   bindDel();
+  warnOutside();
   $('#sCancel').onclick = closeModal;
   $('#sSave').onclick = async () => {
     const list = [...$('#sSlots').querySelectorAll('input[type=time]')].map(i => i.value).filter(Boolean);

@@ -109,14 +109,34 @@ t('销量为 null 的记录跳过', () => {
   if (v !== 20) throw new Error('期望 20，实际 ' + v);
 });
 
-t('数字回退如实给负数（不吞成 0）', () => {
+/* 回退要分两种，"如实给负数"只对其中一种成立。
+   这条用例原来只覆盖了日切那一种，改名后两种分开断言，别混在一起。 */
+t('日切下修（今早首采比昨夜低）→ 从今早起算，但下修量记在 todayCut 里不丢', () => {
   const db = freshDB();
   store.upsertProduct(db, { id: 'a', name: 'A', url: 'u', shop: '店A' });
   store.addSnapshot(db, 'a', { ts: yesterdayAt(21), soldTotal: 1000, ok: true });
   store.addSnapshot(db, 'a', { ts: todayAt(9), soldTotal: 995, ok: true });
   store.save(db);
-  const v = store.todayDelta(store.load(), 'a');
-  if (v !== -5) throw new Error('期望 -5，实际 ' + v);
+  const loaded = store.load();
+  const v = store.todayDelta(loaded, 'a');
+  if (v !== 0) throw new Error('期望 0（今天只有一条记录，还测不出今天卖了多少），实际 ' + v);
+  // 关键是这 5 件不能人间蒸发
+  const bl = store.todayBaseline(loaded, 'a');
+  if (bl.absorbed !== 5) throw new Error('todayCut 应为 5，实际 ' + bl.absorbed);
+});
+
+t('盘中真实回退（今天先涨后跌破昨夜）→ 今日增量如实为负', () => {
+  const db = freshDB();
+  store.upsertProduct(db, { id: 'a', name: 'A', url: 'u', shop: '店A' });
+  store.addSnapshot(db, 'a', { ts: yesterdayAt(21), soldTotal: 1000, ok: true });
+  store.addSnapshot(db, 'a', { ts: todayAt(9), soldTotal: 1010, ok: true });
+  store.addSnapshot(db, 'a', { ts: todayAt(15), soldTotal: 998, ok: true });
+  store.save(db);
+  const loaded = store.load();
+  const v = store.todayDelta(loaded, 'a');
+  if (v !== -2) throw new Error('期望 -2（998−1000），实际 ' + v);
+  // 今早首采比昨夜高，不存在日切下修，不该有吸收
+  if (store.todayBaseline(loaded, 'a').absorbed !== 0) throw new Error('不该记 todayCut');
 });
 
 console.log('\n[stats 汇总]');
