@@ -106,11 +106,16 @@ async function run(products, opts = {}) {
       if (r.ok && prev && prev.soldTotal !== null && r.soldTotal !== null) {
         const cls = store.classifyDrop(prev.soldTotal, r.soldTotal);
         if (cls.kind === 'suspicious') {
-          // 降幅大到不像退款：更可能是链接变了或口径换了，仍然判失败
+          // 降幅大到不像读数抖动：更可能是链接变了或口径换了，判失败不入库
           r.ok = false;
           r.failReason = `数字回退过大（${prev.soldTotal} → ${r.soldTotal}，降 ${cls.drop}），疑似链接变更或口径调整`;
         } else if (cls.kind === 'correction') {
-          // 平台修正（多半是剔除退款）：照常入库，只是这次增量是负的
+          /*
+          小幅回退先照常入库，不在这里下结论。
+          实测这类回退多是 0 点前后读到了旧快照（降下去又涨回来），
+          真假由 store.soldSeries 事后判定：之后涨回高点就剔除，始终涨不回才算真回退。
+          所以这里只记录幅度，增量照实为负，页面上会标「修正」。
+          */
           r.correctedDrop = cls.drop;
           delta = r.soldTotal - prev.soldTotal;
         } else {
@@ -124,6 +129,8 @@ async function run(products, opts = {}) {
         ok: r.ok,
         failReason: r.failReason,
         correctedDrop: r.correctedDrop || null,
+        soldApprox: r.soldApprox,
+        soldStep: r.soldStep,
         price: r.price ?? null,
         priceOriginal: r.priceOriginal ?? null,
         priceDiscount: r.priceDiscount ?? null,

@@ -229,6 +229,8 @@ function groupByShop(db, groupName, days) {
       cumulative: d.cumulative ?? null,
       delta: d.delta ?? null,
       todayDelta: d.todayDelta ?? null,
+      soldApprox: !!d.soldApprox,
+      soldStep: d.soldStep ?? null,
       hours: d.hours ?? null,
       perHour: d.perHour ?? null,
       perHourReliable: d.perHourReliable !== false,
@@ -299,6 +301,8 @@ function groupCompare(db, days) {
       cumulative: d.cumulative ?? null,
       delta: d.delta ?? null,
       todayDelta: d.todayDelta ?? null,
+      soldApprox: !!d.soldApprox,
+      soldStep: d.soldStep ?? null,
       hours: d.hours ?? null,
       perHourReliable: d.perHourReliable !== false,
       cumulativeInWindow: d.cumulativeInWindow ?? null,
@@ -329,11 +333,11 @@ function groupCompare(db, days) {
 }
 
 /*
-数字回退分级。
-背景：平台会在日切时剔除退款/取消单，页面上的「已售」会**真的变小**
-（实测 0 点那次：1857→1778、1661→1647、556→550，降幅 1%~4%）。
-这属于正常修正，如果一律判失败丢弃，0 点的基线就没了，当日销量跟着失真。
-所以小幅回退照常入库并标记，只有大到不像退款的才怀疑链接/口径出问题。
+数字回退分级（只是"这次读数要不要入库"的闸门，不是最终判定）。
+背景订正：曾经认为 0 点的回退是平台剔除退款，实测**不成立**——
+电容笔 23:40=1857 → 00:00=1778 → 00:15=1860，退款不会把件数还回来，
+这是读到了旧快照/延迟数据。真假最终由 soldSeries 事后判定。
+这里只拦"降得离谱"的那种（更像链接变了或换了口径），其余照常入库。
 */
 const DROP_ABS_FLOOR = 50;    // 小基数商品至少容忍 50 件
 const DROP_RATIO = 0.05;      // 或者 5%，取两者较大
@@ -360,8 +364,11 @@ function addSnapshot(db, productId, fields) {
     source: fields.source || 'manual',
     ok: fields.ok !== false,
     failReason: fields.failReason || null,
-    // 本次采集相对上一条的回退幅度（平台修正退款时为正常现象，不是失败）
+    // 本次采集相对上一条的回退幅度（多为 0 点前后读到的旧快照，事后会被 soldSeries 剔除）
     correctedDrop: fields.correctedDrop || null,
+    // 平台把「已售」取整显示时（如「已售5.4万+」），这个读数的分辨率只有 1000 件
+    soldApprox: !!fields.soldApprox,
+    soldStep: fields.soldStep || null,
     // price = 到手价（有优惠时是券后实付），priceOriginal = 划线价
     price: fields.price === undefined ? null : fields.price,
     priceOriginal: fields.priceOriginal === undefined ? null : fields.priceOriginal,
@@ -428,18 +435,46 @@ function currentPrice(db, productId) {
   };
 }
 
+/*
+某个商品的「可信销量序列」：按时间排序，剔掉**过期读数**。
+为什么需要这一步：平台在日切前后会返回旧快照。实测 00:00 采到 1778，
+15 分钟后又回到 1860 —— 比回退前(1857)还高。退款扣减不可能把件数还回来，
+所以那条低读数不是"少卖了"，而是读到了旧数据。
+
+判定很直接，而且只用事后可知的事实：
+  一条读数比之前的高点低，但**之后又涨回了那个高点** → 它是过期读数，剔除；
+  始终没涨回去 → 当作真实的退款扣减，保留（图上会出现负增量，那是事实）。
+代价是"当前最后一条"如果是掉下来的，暂时判不了，先保留——它本来就是最新事实。
+*/
+function soldSeries(db, productId) {
+  const list = db.snapshots
+    .filter(s => s.productId === productId && s.ok && s.soldTotal !== null && s.soldTotal !== undefined)
+    .sort((a, b) => new Date(a.ts) - new Date(b.ts));
+
+  const out = [];
+  for (let i = 0; i < list.length; i++) {
+    const cur = list[i];
+    const high = out.length ? out[out.length - 1].soldTotal : null;
+    if (high !== null && cur.soldTotal < high) {
+      let recovered = false;
+      for (let j = i + 1; j < list.length; j++) {
+        if (list[j].soldTotal >= high) { recovered = true; break; }
+      }
+      if (recovered) continue;      // 过期读数，不参与任何统计
+    }
+    out.push(cur);
+  }
+  return out;
+}
+
 // 取某商品最近一次「成功读到数字」的快照，避免用失败记录做差
 function lastValid(db, productId) {
-  const list = db.snapshots
-    .filter(s => s.productId === productId && s.ok && s.soldTotal !== null)
-    .sort((a, b) => new Date(a.ts) - new Date(b.ts));
+  const list = soldSeries(db, productId);
   return list.length ? list[list.length - 1] : null;
 }
 
 function computeDelta(db, productId) {
-  const valid = db.snapshots
-    .filter(s => s.productId === productId && s.ok && s.soldTotal !== null)
-    .sort((a, b) => new Date(a.ts) - new Date(b.ts));
+  const valid = soldSeries(db, productId);
   if (valid.length < 2) return { delta: null, hours: null, cumulative: valid.length ? valid[valid.length-1].soldTotal : null, samples: valid.length };
   const cur = valid[valid.length - 1];
   const prev = valid[valid.length - 2];
@@ -471,9 +506,8 @@ function startOfDay(ts) {
 }
 
 function todayDelta(db, productId, refTs) {
-  const snaps = db.snapshots
-    .filter(s => s.productId === productId && s.ok && s.soldTotal !== null && s.soldTotal !== undefined)
-    .sort((a, b) => new Date(a.ts) - new Date(b.ts));
+  // 用可信序列（已剔除过期读数），否则 0 点那条旧快照会把全天销量抬高几十件
+  const snaps = soldSeries(db, productId);
   if (!snaps.length) return null;
 
   const last = snaps[snaps.length - 1];
@@ -481,28 +515,22 @@ function todayDelta(db, productId, refTs) {
   if (new Date(last.ts).getTime() < dayStart) return null;   // 今天没有采集记录
 
   const tOf = s => new Date(s.ts).getTime();
-  const today = snaps.filter(s => tOf(s) >= dayStart);
 
   /*
-  日界基点的选取直接决定"今日销量"准不准，这里有个坑：
-  平台会在 0 点前后剔除退款，「已售」会掉一截（实测掉 1%~4%）。
-  - 若仍拿"昨天最后一条"当基点，这一截掉落会被算成今天的负销量，明显偏低；
-  - 若拿"今天第一条"当基点，一旦那天首采是 09:00，0–9 点的销量就整段漏掉。
-  所以分情况：0 点附近有采集记录就优先用它（同口径、又不漏量），
-  否则退回"昨天最后一条"（老逻辑），没有其它更好选择时再退到今天第一条。
+  基点只取一个：今天 00:00 之前最后一次可信读数。
+  曾经试过"日切那条单独当基点"，那是建立在"0 点数字下降 = 平台剔除退款"的假设上；
+  实测证明这个假设不成立（见 soldSeries 注释：降下去又涨回来，退款不会还件数）。
+  一旦用那条错误的低值当基点，当天销量会被整体抬高（电容笔会算成 90 而不是 11）。
+  所以不再给日切特殊待遇：昨天最后一条可信值，就是今天的起点。
   */
-  const daybreak = today.find(s => tOf(s) - dayStart <= DAYBREAK_WINDOW);
-
-  let base = daybreak || null;
-  if (!base) {
-    for (const s of snaps) {
-      if (tOf(s) < dayStart) base = s;
-      else break;
-    }
+  let base = null;
+  for (const s of snaps) {
+    if (tOf(s) < dayStart) base = s;
+    else break;
   }
   if (!base) {
-    // 完全没有历史基线：用今天第一条，至少不会把累计值当成今日增量
-    base = today[0] || last;
+    // 今天才开始监控：用今天第一条当基线，至少不会把历史累计当成今日增量
+    base = snaps.find(s => tOf(s) >= dayStart) || last;
   }
   return last.soldTotal - base.soldTotal;
 }
@@ -513,13 +541,29 @@ function sumToday(list) {
   return vals.length ? vals.reduce((a, v) => a + v, 0) : null;
 }
 
+/* 平台把「已售」取整显示时（「已售5.4万+」），读数只能精确到档位。
+   老快照没存 soldApprox 字段，就从 note 里的原始文案反推。 */
+const COARSE_RE = /[0-9.]+\s*(?:万|千|w|k)|\+/i;
+function coarseInfo(snap) {
+  if (!snap) return { approx: false, step: null };
+  const note = String(snap.note || '');
+  const approx = snap.soldApprox !== undefined ? !!snap.soldApprox : COARSE_RE.test(note);
+  if (!approx) return { approx: false, step: null };
+  let step = snap.soldStep || null;
+  if (!step) {
+    step = /万|w/i.test(note) ? 1000 : (/千|k/i.test(note) ? 100 : null);
+  }
+  return { approx: true, step };
+}
+
 function stats(db, days) {
   const since = Date.now() - days * 864e5;
   const out = {};
   for (const p of db.products) {
     if (p.archived) continue;
     const d = computeDelta(db, p.id);
-    const recent = db.snapshots.filter(s => s.productId === p.id && s.ok && new Date(s.ts).getTime() >= since);
+    const series = soldSeries(db, p.id);
+    const recent = series.filter(s => new Date(s.ts).getTime() >= since);
     const first = recent.length ? recent[0].soldTotal : null;
     const last = recent.length ? recent[recent.length - 1].soldTotal : null;
     const cumulativeInWindow = first !== null && last !== null ? last - first : null;
@@ -530,13 +574,16 @@ function stats(db, days) {
       todayDelta: todayDelta(db, p.id),
       windowDays: days,
       cumulativeInWindow,
-      failedRuns: failed
+      failedRuns: failed,
+      // 平台对高销量商品只给取整值（如「已售5.4万+」），这类商品的增量分辨率有限
+      soldApprox: coarseInfo(series.length ? series[series.length - 1] : null).approx,
+      soldStep: coarseInfo(series.length ? series[series.length - 1] : null).step
     };
   }
   return out;
 }
 
-module.exports = { load, save, upsertProduct, addSnapshot, lastValid, computeDelta, stats, todayDelta, startOfDay, classifyDrop, DROP_ABS_FLOOR, DROP_RATIO, DAYBREAK_WINDOW,
+module.exports = { load, save, upsertProduct, addSnapshot, lastValid, soldSeries, computeDelta, stats, todayDelta, startOfDay, classifyDrop, DROP_ABS_FLOOR, DROP_RATIO, DAYBREAK_WINDOW,
   listGroups, createGroup, renameGroup, deleteGroup, dissolveGroup, previewDissolve,
   groupCompare, groupByShop, buildPriceIndex, NO_SHOP,
   priceSeries, priceChanges, currentPrice, UNGROUPED, DB_FILE };

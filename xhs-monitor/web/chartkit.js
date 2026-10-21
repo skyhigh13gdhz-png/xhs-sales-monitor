@@ -99,13 +99,47 @@ function cumulativeByPeriod(points, period) {
     .map(([t, v]) => ({ t: new Date(t).toISOString(), v }));
 }
 
-/* 每周期的增量 = 本周期累计 − 上一周期累计。
-   第一个周期没有基线，直接跳过（不编造 0）。 */
+/*
+每周期的增量，与「今日增量」「组内合计」同一套口径：
+  本周期增量 = 本周期最后一次 − 上一周期最后一次。
+  不再对"周期起点数字变低"做特殊处理——曾经以为那是平台剔除退款，
+  实测是 0 点前后读到了旧快照（降下去又涨回来），上游已经把这类读数剔除，
+  这里如果还按"掉下来的值"当基点，就会把当天销量整体抬高。
+第一个周期没有上期：用「期内第一次」当基线并标 firstBasis（图上画空心圈 + ≈），
+  不然从开始监控到第一个周期结束卖的量会整段看不见——只有两三天数据时尤其明显。
+周期内只有一个点、又没上期 → 算不出来，跳过（不编 0）。
+*/
 function deltaByPeriod(points, period) {
-  const cum = cumulativeByPeriod(points, period);
+  const p = period || 'day';
+  const sorted = [...(points || [])]
+    .filter(x => x && x.v !== null && x.v !== undefined && x.t)
+    .sort((a, b) => new Date(a.t) - new Date(b.t));
+  if (!sorted.length) return [];
+
+  const groups = new Map();
+  for (const x of sorted) {
+    const k = bucketStart(x.t, p);
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(x);
+  }
+  const keys = [...groups.keys()].sort((a, b) => a - b);
+
   const out = [];
-  for (let i = 1; i < cum.length; i++) {
-    out.push({ t: cum[i].t, v: cum[i].v - cum[i - 1].v });
+  for (let i = 0; i < keys.length; i++) {
+    const g = groups.get(keys[i]);
+    const last = g[g.length - 1].v;
+    const prevKey = i > 0 ? keys[i - 1] : null;
+    const prevLast = prevKey === null ? null : groups.get(prevKey)[groups.get(prevKey).length - 1].v;
+
+    let base = null, firstBasis = false;
+    if (prevLast !== null) {
+      base = prevLast;
+    } else if (g.length > 1) {
+      base = g[0].v;
+      firstBasis = true;
+    }
+    if (base === null) continue;
+    out.push({ t: new Date(keys[i]).toISOString(), v: last - base, firstBasis });
   }
   return out;
 }
@@ -143,7 +177,26 @@ function bounds(series, key) {
   return { tmin, tmax, vmin, vmax };
 }
 
-function axes(b, W, H, PL, PR, PT, PB, fmtY, fmtX) {
+/*
+横轴标签：优先打在真实数据点上（tickTimes），没给才退回等距插值。
+两种情况都要去重——两天数据若在整段范围上等距插 4 个刻度，
+会画成「10/20 10/20 10/21 10/21」，看着像同一天出现了两次。
+规则：同一文案只画一次；与前一个标签像素间距不足就省略。
+*/
+function pickTicks(X, fx, times, PL, W, PR) {
+  const out = [];
+  for (const t of times) {
+    const x = X(t);
+    if (x < PL - 1 || x > W - PR + 1) continue;
+    const text = fx(t);
+    const prev = out[out.length - 1];
+    if (prev && (prev.text === text || x - prev.x < 44)) continue;
+    out.push({ x, text });
+  }
+  return out;
+}
+
+function axes(b, W, H, PL, PR, PT, PB, fmtY, fmtX, tickTimes) {
   const iw = W - PL - PR, ih = H - PT - PB;
   const Y = v => PT + ih - ((v - b.vmin) / (b.vmax - b.vmin || 1)) * ih;
   const X = t => PL + ((t - b.tmin) / (b.tmax - b.tmin || 1)) * iw;
@@ -161,15 +214,17 @@ function axes(b, W, H, PL, PR, PT, PB, fmtY, fmtX) {
       `<text x="${PL - 8}" y="${y}" font-size="11" text-anchor="end" dominant-baseline="central" fill="var(--tx3)">${fmtY(v)}</text>`);
   }
 
-  const xl = [];
-  const ticks = 4;
-  for (let i = 0; i < ticks; i++) {
-    const t = b.tmin + ((b.tmax - b.tmin) * i) / (ticks - 1);
-    const x = X(t).toFixed(1);
-    const d = new Date(t);
-    xl.push(`<text x="${x}" y="${H - PB + 15}" font-size="11" text-anchor="middle" fill="var(--tx3)">${fx(t)}</text>`);
-  }
-  return { X, Y, grid: grid.join(''), xl: xl.join('') };
+  const times = (tickTimes && tickTimes.length) ? tickTimes : (() => {
+    const n = 4, a = [];
+    for (let i = 0; i < n; i++) a.push(b.tmin + ((b.tmax - b.tmin) * i) / (n - 1));
+    return a;
+  })();
+  const xl = pickTicks(X, fx, times, PL, W, PR).map(o => {
+    // 两端的标签改成贴边的锚点，否则「10/20」会被画布裁掉半个字
+    const anchor = o.x < PL + 14 ? 'start' : (o.x > W - PR - 14 ? 'end' : 'middle');
+    return `<text x="${o.x.toFixed(1)}" y="${H - PB + 15}" font-size="11" text-anchor="${anchor}" fill="var(--tx3)">${o.text}</text>`;
+  }).join('');
+  return { X, Y, grid: grid.join(''), xl };
 }
 
 /*
@@ -206,23 +261,34 @@ function lineSvg(series, opt) {
   const bb = { ...b, vmin: Math.max(0, b.vmin - pad), vmax: b.vmax + pad };
 
   const fmtV = o.fmtV || fmtNum;
-  const { X, Y, grid, xl } = axes(bb, W, H, PL, PR, PT, PB, fmtV, o.fmtX);
+  // 横轴按真实数据点打标签；多序列取时间并集，去重交给 pickTicks
+  let xt = o.xticks;
+  if (!xt || !xt.length) {
+    const set = new Set();
+    for (const s of series) for (const p of s.points || []) set.add(new Date(p.t).getTime());
+    xt = [...set].sort((a, b) => a - b);
+  }
+  const { X, Y, grid, xl } = axes(bb, W, H, PL, PR, PT, PB, fmtV, o.fmtX, xt);
   const body = series.map(s => {
     const c = s.color;
     const xy = s.points.map(p => ({
-      x: X(new Date(p.t).getTime()), y: Y(p.v), v: p.v, t: p.t
+      x: X(new Date(p.t).getTime()), y: Y(p.v), v: p.v, t: p.t, firstBasis: !!p.firstBasis
     }));
     if (!xy.length) return '';
 
     // 数值用线的颜色 + 背景色描边：多序列时能一眼看出这个数属于哪条线
-    const label = (x, y, v) =>
+    const label = (x, y, v, approx) =>
       `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" font-size="10.5" text-anchor="middle" fill="${c}"` +
-      ` stroke="var(--bg)" stroke-width="2.6" paint-order="stroke" stroke-linejoin="round">${fmtV(v)}</text>`;
+      ` stroke="var(--bg)" stroke-width="2.6" paint-order="stroke" stroke-linejoin="round">${approx ? '≈' : ''}${fmtV(v)}</text>`;
+
+    // 起算点画成空心圈：它没有上期基线，含义与其它点不同
+    const dot = (p, r) => p.firstBasis
+      ? `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${r - 0.4}" fill="var(--bg)" stroke="${c}" stroke-width="1.6"/>`
+      : `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${r}" fill="${c}"/>`;
 
     if (xy.length === 1) {
-      const { x, y, v } = xy[0];
-      const dot = `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3" fill="${c}"/>`;
-      return dot + (o.values ? label(x, y - 8, v) : '');
+      const p = xy[0];
+      return dot(p, 3) + (o.values ? label(p.x, p.y - 8, p.v, p.firstBasis) : '');
     }
 
     const line = `<polyline points="${xy.map(p => p.x.toFixed(1) + ',' + p.y.toFixed(1)).join(' ')}" fill="none" stroke="${c}" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>`;
@@ -233,12 +299,12 @@ function lineSvg(series, opt) {
     }
 
     // 标数值时把每个点都点出来，文字只按抽稀规则标注，避免挤成一团
-    const dots = xy.map(p => `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="2.4" fill="${c}"/>`).join('');
+    const dots = xy.map(p => dot(p, 2.4)).join('');
     const labels = labelIndexes(xy.length, o.maxLabels)
       .map(i => {
         const p = xy[i];
         // 靠上的点标签放到下方，避免顶出画布
-        return label(p.x, p.y + (p.y < PT + 14 ? 14 : -8), p.v);
+        return label(p.x, p.y + (p.y < PT + 14 ? 14 : -8), p.v, p.firstBasis);
       }).join('');
     return line + dots + labels;
   }).join('');
@@ -292,7 +358,7 @@ function legend(series, extra) {
 
 const ChartKit = {
   PALETTE, PERIODS, PERIOD_TEXT, color, sumSeries, valueAt, toSteps, shortName,
-  bucketStart, fmtBucket, cumulativeByPeriod, deltaByPeriod, periodDays, labelIndexes,
+  bucketStart, fmtBucket, cumulativeByPeriod, deltaByPeriod, periodDays, labelIndexes, pickTicks,
   lineSvg, stepSvg, legend, bounds
 };
 

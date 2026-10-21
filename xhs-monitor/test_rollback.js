@@ -55,45 +55,72 @@ console.log('\n[回退分级]');
   t('小基数按绝对值下限容忍（40→20）', c8.kind === 'correction', c8);
 }
 
-console.log('\n[每日销量：优先用 0 点采集做日界基点]');
+console.log('\n[过期读数：0 点掉下去、随后又涨回来 → 剔除]');
+{
+  // 实测序列（电容笔）：23:40=1857 → 00:00=1778 → 00:15=1860 → 08:00=1868
+  // 1778 比回退前低 79，但 15 分钟后又回到 1860（比 1857 还高）。
+  // 退款不会把件数还回来，所以 1778 是读到了旧快照。
+  const db = emptyDb();
+  db.products.push({ id: 'p1', name: 'A', shop: 'S', url: 'u', group: '' });
+  db.snapshots.push(
+    { id: 'a', productId: 'p1', ts: at(20, 23, 40), soldTotal: 1857, ok: true },
+    { id: 'b', productId: 'p1', ts: at(21, 0, 0), soldTotal: 1778, ok: true, correctedDrop: 79 },
+    { id: 'c', productId: 'p1', ts: at(21, 0, 15), soldTotal: 1860, ok: true },
+    { id: 'd', productId: 'p1', ts: at(21, 8, 0), soldTotal: 1868, ok: true }
+  );
+  const clean = store.soldSeries(db, 'p1').map(x => x.soldTotal);
+  t('1778 被剔除，序列只剩 1857/1860/1868', JSON.stringify(clean) === '[1857,1860,1868]', clean);
+  const d = store.todayDelta(db, 'p1', new Date(2026, 9, 21, 12).getTime());
+  t('今日增量 = 1868 − 1857 = 11（不是 1868 − 1778 = 90）', d === 11, d);
+  t('最近增量也是 +8，不会出现 −79', store.computeDelta(db, 'p1').delta === 8, store.computeDelta(db, 'p1').delta);
+}
+
+console.log('\n[真回退：掉下去就没再回来 → 保留，如实为负]');
 {
   const db = emptyDb();
   db.products.push({ id: 'p1', name: 'A', shop: 'S', url: 'u', group: '' });
-  // 昨天最后 1857；今天 0:30 采到 1778（平台修正掉了 79）；今天 10:00 采到 1800
   db.snapshots.push(
-    { id: 'a', productId: 'p1', ts: at(20, 23, 50), soldTotal: 1857, ok: true },
-    { id: 'b', productId: 'p1', ts: at(21, 0, 30), soldTotal: 1778, ok: true, correctedDrop: 79 },
-    { id: 'c', productId: 'p1', ts: at(21, 10, 0), soldTotal: 1800, ok: true }
+    { id: 'a', productId: 'p1', ts: at(20, 23, 40), soldTotal: 1000, ok: true },
+    { id: 'b', productId: 'p1', ts: at(21, 0, 0), soldTotal: 940, ok: true },
+    { id: 'c', productId: 'p1', ts: at(21, 8, 0), soldTotal: 945, ok: true }
   );
+  const clean = store.soldSeries(db, 'p1').map(x => x.soldTotal);
+  t('940 没被剔除（没有涨回 1000）', JSON.stringify(clean) === '[1000,940,945]', clean);
   const d = store.todayDelta(db, 'p1', new Date(2026, 9, 21, 12).getTime());
-  // 用 0 点基点：1800 − 1778 = 22；若误用昨日最后则是 1800 − 1857 = −57
-  t('用 0 点值做基点，今日销量 = 22', d === 22, d);
-  t('不会被 0 点修正污染成负数', d > 0, d);
+  t('今日增量 = 945 − 1000 = −55（真实扣减就是要看得见）', d === -55, d);
 }
 
-console.log('\n[没有 0 点数据时退回昨日最后一条]');
+console.log('\n[涨回去但没超过回退前的高点 → 保守保留]');
+{
+  const db = emptyDb();
+  db.products.push({ id: 'p1', name: 'A', shop: 'S', url: 'u', group: '' });
+  db.snapshots.push(
+    { id: 'a', productId: 'p1', ts: at(20, 23, 40), soldTotal: 1000, ok: true },
+    { id: 'b', productId: 'p1', ts: at(21, 0, 0), soldTotal: 900, ok: true },
+    { id: 'c', productId: 'p1', ts: at(21, 8, 0), soldTotal: 980, ok: true }
+  );
+  const clean = store.soldSeries(db, 'p1').map(x => x.soldTotal);
+  t('没超过 1000 就不敢断言是过期读数，保留', JSON.stringify(clean) === '[1000,900,980]', clean);
+  t('今日增量 = −20', store.todayDelta(db, 'p1', new Date(2026, 9, 21, 12).getTime()) === -20,
+    store.todayDelta(db, 'p1', new Date(2026, 9, 21, 12).getTime()));
+}
+
+console.log('\n[今日增量与「按日销量图」必须同口径]');
 {
   const db = emptyDb();
   db.products.push({ id: 'p1', name: 'A', shop: 'S', url: 'u', group: '' });
   db.snapshots.push(
     { id: 'a', productId: 'p1', ts: at(20, 23, 50), soldTotal: 1000, ok: true },
-    { id: 'b', productId: 'p1', ts: at(21, 9, 0), soldTotal: 1030, ok: true }   // 首采在 9 点，不在日切窗口
-  );
-  const d = store.todayDelta(db, 'p1', new Date(2026, 9, 21, 12).getTime());
-  t('退回昨日最后：1030 − 1000 = 30', d === 30, d);
-}
-
-console.log('\n[首采在窗口外不会漏掉凌晨销量]');
-{
-  const db = emptyDb();
-  db.products.push({ id: 'p1', name: 'A', shop: 'S', url: 'u', group: '' });
-  db.snapshots.push(
-    { id: 'a', productId: 'p1', ts: at(20, 23, 50), soldTotal: 1000, ok: true },
-    { id: 'b', productId: 'p1', ts: at(21, 0, 10), soldTotal: 1005, ok: true },  // 日切窗口内
+    { id: 'b', productId: 'p1', ts: at(21, 0, 10), soldTotal: 1005, ok: true },
     { id: 'c', productId: 'p1', ts: at(21, 8, 0), soldTotal: 1100, ok: true }
   );
   const d = store.todayDelta(db, 'p1', new Date(2026, 9, 21, 12).getTime());
-  t('有 0:10 的记录就用它：1100 − 1005 = 95', d === 95, d);
+  t('跨 0 点那点销量算今天：1100 − 1000 = 100', d === 100, d);
+
+  const K = require('./web/chartkit.js');
+  const pts = store.soldSeries(db, 'p1').map(s => ({ t: s.ts, v: s.soldTotal }));
+  const todayPoint = K.deltaByPeriod(pts, 'day').pop();
+  t('图上今天那个点与今日增量一致', todayPoint.v === d, { 图: todayPoint.v, 今日增量: d });
 }
 
 console.log('\n[边界情况]');

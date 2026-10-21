@@ -85,6 +85,26 @@ function parseSold(raw) {
   return Math.round(n);
 }
 
+/*
+「已售」在高销量商品上是取整显示的：「已售5.4万+」只能解析成 54000，
+真实值可能是 54000~54999 之间任何数。这种商品的日增量分辨率就是 1000 件，
+永远看不到个位数的变化——必须让界面说明白，否则用户会以为"没卖动"。
+返回 {approx, step}：approx=true 表示读数被截断过，step 是可能的粒度。
+*/
+function soldResolution(raw) {
+  const s = String(raw || '').replace(/\s+/g, '');
+  if (!s) return { approx: false, step: null };
+  const m = s.match(/([0-9]+(?:\.[0-9]+)?)(万|千|w|k)(\+)?/i);
+  if (m) {
+    const u = m[2].toLowerCase();
+    const step = (u === '万' || u === 'w') ? 1000 : 100;
+    return { approx: true, step };
+  }
+  // 「已售5.4万+」「已售1200+」这种带加号的，真实值只会比显示值大
+  if (/\+/.test(s)) return { approx: true, step: null };
+  return { approx: false, step: null };
+}
+
 function fetchJson(url, timeout = 20000) {
   return new Promise(resolve => {
     execFile('curl', ['-s', '--max-time', String(Math.floor(timeout / 1000)),
@@ -201,12 +221,15 @@ async function fetchItem(itemId) {
   }
 
   const fans = parseSold((sellerH5.fansAmount || '').replace(/^粉丝数\s*/, ''));
+  const res = soldResolution(soldText);
 
   return {
     ok: true,
     source: 'api',
     itemId,
     soldTotal: sold,
+    soldApprox: res.approx,
+    soldStep: res.step,
     shopSold,
     // descriptionMain.name 是纯标题，descriptionH5.name 常带规格后缀
     title: (descMain.name || descH5.name || '').trim().slice(0, 80),
@@ -233,4 +256,4 @@ async function resolveItemId(url) {
   return extractItemId(out);
 }
 
-module.exports = { fetchItem, resolveItemId, extractItemId, parseShareText, parseSold, extractPrice, API };
+module.exports = { fetchItem, resolveItemId, extractItemId, parseShareText, parseSold, soldResolution, extractPrice, API };

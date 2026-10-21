@@ -32,7 +32,7 @@ S0=$(md5sum "$SCHED")
 
 CORE="test_core test_groups_explicit test_groups test_price test_scheduler test_shop_aggregate test_today test_share_text test_chartkit test_period test_rollback"
 API="test_api test_schedule_api test_share_api"
-UI="test_ui_charts test_ui_price test_ui_shopgroup test_ui_dissolve test_ui_manage test_ui_jobposition test_ui_lastnext test_ui_layout test_ui_overview test_ui_today test_ui_todayhot test_ui_share test_ui_period"
+UI="test_ui_charts test_ui_price test_ui_shopgroup test_ui_dissolve test_ui_manage test_ui_jobposition test_ui_lastnext test_ui_layout test_ui_overview test_ui_today test_ui_todayhot test_ui_stale test_ui_share test_ui_period"
 
 case "${1:-all}" in
   core) LIST=$CORE ;;

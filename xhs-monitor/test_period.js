@@ -27,7 +27,7 @@ console.log('\n[按日聚合：一天只留最后一个点]');
   t('周期起点是当天 00:00', new Date(c[0].t).getHours() === 0, c[0].t);
 }
 
-console.log('\n[按日增量：本日最后 − 前一日最后]');
+console.log('\n[按日增量：本日最后 − 前一日最后；首日按期内起算]');
 {
   const pts = [
     { t: at(10, 19), v: 100 },
@@ -36,11 +36,29 @@ console.log('\n[按日增量：本日最后 − 前一日最后]');
     { t: at(21, 20), v: 150 }    // 10-20 最后 = 150
   ];
   const d = K.deltaByPeriod(pts, 'day');
-  t('两天数据只产出 1 个增量（首日无基线）', d.length === 1, d.length);
-  t('增量 = 150 − 110 = 40', vals(d)[0] === 40, vals(d));
+  t('两天数据 → 2 个增量（首日也要能看出涨了多少）', d.length === 2, d.length);
+  t('首日 = 110 − 100 = 10，且标了 firstBasis', vals(d)[0] === 10 && d[0].firstBasis === true, d[0]);
+  t('次日 = 150 − 110 = 40，不带 firstBasis', vals(d)[1] === 40 && !d[1].firstBasis, d[1]);
+  t('合计 = 150 − 100，每件都恰好归到某一天',
+    vals(d).reduce((a, v) => a + v, 0) === 50, vals(d));
 }
 
-console.log('\n[首周期没有基线：跳过而不是编 0]');
+console.log('\n[周期增量不对"周期起点变低"做特殊处理]');
+{
+  // 昨天最后 1661，今天 00:15 是 1647，今天 10:00 回到 1660
+  // 旧实现会把 1647 当基点 → +13；现在按"上周期最后"算 → −1
+  // （1647 这种降下去又涨回来的读数，属于过期读数，上游 soldSeries 会剔除，
+  //   真到不了这里；这里验证的是"万一它还在，也不会被当成新起点"）
+  const pts = [
+    { t: at(23, 20), v: 1661 },
+    { t: at(0, 21), v: 1647 },
+    { t: at(10, 21), v: 1660 }
+  ];
+  const d = K.deltaByPeriod(pts, 'day');
+  t('今天 = 1660 − 1661 = −1（不拿掉下来的 1647 当基点）', vals(d)[0] === -1, vals(d));
+}
+
+console.log('\n[首周期只有一个点：算不出来就跳过，不编 0]');
 {
   const d = K.deltaByPeriod([{ t: at(10, 20), v: 500 }], 'day');
   t('只有一个周期 → 没有增量点', d.length === 0, d.length);
@@ -76,7 +94,8 @@ console.log('\n[跨周：周一为起点]');
   t('第一周取周日最后值 150', vals(c)[0] === 150, vals(c));
   t('第二周取 180', vals(c)[1] === 180, vals(c));
   const d = K.deltaByPeriod(pts, 'week');
-  t('周增量 = 180 − 150 = 30', vals(d)[0] === 30, vals(d));
+  t('第一周按期内起算：150 − 100 = 50（标 firstBasis）', vals(d)[0] === 50 && d[0].firstBasis === true, d[0]);
+  t('第二周 = 180 − 150 = 30', vals(d)[1] === 30, vals(d));
 }
 
 console.log('\n[跨月]');
@@ -148,6 +167,38 @@ console.log('\n[X 轴文案随周期变化]');
   t('周 → 带"起"', /起$/.test(K.fmtBucket(new Date(2026, 9, 5).toISOString(), 'week')));
   t('日 → 10/5', K.fmtBucket(new Date(2026, 9, 5).toISOString(), 'day') === '10/5');
   t('每次 → 带时分', /\d{2}:\d{2}$/.test(K.fmtBucket(new Date(2026, 9, 5, 14, 30).toISOString(), 'each')));
+}
+
+/* 真实问题：只有两天数据时，横轴曾画成「10/20 10/20 10/21 10/21」，
+   因为旧实现是在整段范围上等距插 4 个刻度再各自格式化。 */
+console.log('\n[X 轴标签不重复、按数据点打]');
+{
+  const bottom = svg => [...svg.matchAll(/<text x="[\d.]+" y="195"[^>]*>([^<]*)<\/text>/g)].map(m => m[1]);
+  const pts = [{ t: at(20, 20, 10), v: 100 }, { t: at(20, 21, 10), v: 120 }];   // 10/20、10/21 各一条
+  const svg = K.lineSvg([{ name: 'A', color: '#000', points: pts }],
+    { fmtX: t => K.fmtBucket(t, 'day') });
+  const lab = bottom(svg);
+  t('两个日期只画两个标签（不是四个）', lab.length === 2, lab);
+  t('标签文案不重复', new Set(lab).size === lab.length, lab);
+  t('正好是 10/20 与 10/21', lab.join(',') === '10/20,10/21', lab);
+
+  // 点很多时按最小像素间距抽稀，且仍不重复
+  const many = [];
+  for (let i = 0; i < 12; i++) many.push({ t: new Date(2026, 8, 1 + i, 10).toISOString(), v: 100 + i });
+  const svg2 = K.lineSvg([{ name: 'A', color: '#000', points: many }], { fmtX: t => K.fmtBucket(t, 'day') });
+  const lab2 = bottom(svg2);
+  t('12 个日期会被抽稀（不超过 12 个）', lab2.length > 0 && lab2.length <= 12, lab2.length);
+  t('抽稀后仍不重复', new Set(lab2).size === lab2.length, lab2);
+}
+
+console.log('\n[首周期起算点：空心圈 + ≈]');
+{
+  const d = K.deltaByPeriod([{ t: at(10, 20), v: 100 }, { t: at(21, 20), v: 130 }], 'day');
+  const svg = K.lineSvg([{ name: 'A', color: '#000', points: d }], {
+    values: true, fmtV: v => (v > 0 ? '+' : '') + Math.round(v)
+  });
+  t('起算点画成空心圈（填充是背景色）', /fill="var\(--bg\)" stroke="#000"/.test(svg), svg.slice(0, 200));
+  t('起算点数值带 ≈ 前缀', /≈\+30/.test(svg), (svg.match(/<text[^>]*>[^<]*<\/text>/g) || []).slice(-3));
 }
 
 console.log(`\n结果: ${pass} 通过, ${fail} 失败\n`);

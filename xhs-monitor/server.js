@@ -425,9 +425,15 @@ const routes = {
   'GET /api/history': async (req, res, q) => {
     const id = q.get('id');
     const db = store.load();
+    // 被判定为过期读数（0 点前后读到旧快照）的那几条，前台要标出来，不能当成采集失败
+    const kept = new Set(store.soldSeries(db, id).map(s => s.id));
     const list = db.snapshots.filter(s => s.productId === id)
       .sort((a, b) => new Date(b.ts) - new Date(a.ts)).slice(0, 60)
-      .map(s => ({ ts: s.ts, ok: s.ok, soldTotal: s.soldTotal, source: s.source, note: s.note, failReason: s.failReason }));
+      .map(s => ({
+        ts: s.ts, ok: s.ok, soldTotal: s.soldTotal, source: s.source, note: s.note,
+        failReason: s.failReason,
+        excluded: !!(s.ok && s.soldTotal !== null && !kept.has(s.id))
+      }));
     json(res, 200, { history: list });
   },
 
@@ -452,11 +458,12 @@ const routes = {
   'GET /api/chart': async (req, res, q) => {
     const db = store.load();
     const days = Number(q.get('days')) || 30;
+    const since = Date.now() - days * 864e5;
     const out = {};
     for (const p of db.products.filter(x => !x.archived)) {
-      out[p.id] = db.snapshots
-        .filter(s => s.productId === p.id && s.ok && s.soldTotal !== null && new Date(s.ts).getTime() >= Date.now() - days * 864e5)
-        .sort((a, b) => new Date(a.ts) - new Date(b.ts))
+      // 用可信序列：0 点前后读到的过期值不进曲线，否则曲线会凭空掉一个坑
+      out[p.id] = store.soldSeries(db, p.id)
+        .filter(s => new Date(s.ts).getTime() >= since)
         .map(s => ({ t: s.ts, v: s.soldTotal }));
     }
     json(res, 200, { series: out });

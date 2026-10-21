@@ -631,6 +631,19 @@ function renderGroupOverview() {
 }
 
 /* ---------- 单元格小工具 ---------- */
+function cumCell(p) {
+  if (p.cumulative === null || p.cumulative === undefined) return '<span class="dim">—</span>';
+  if (!p.soldApprox) return fmt(p.cumulative);
+  /*
+  高销量商品的「已售」是取整显示的（实测「已售5.4万+」），
+  解析出来的 54000 只是那个档位的下界，真实值可能还多几百件。
+  不标出来的话，日增量长期显示 0，很容易被误读成"这品不动了"。
+  */
+  const step = p.soldStep ? `，平台按 ${fmt(p.soldStep)} 件一档` : '';
+  return `<span title="平台只显示取整值（${fmt(p.cumulative)} 起）${step}；真实增量要跨过这一档才会体现">` +
+    `≈${fmt(p.cumulative)}<span class="dim">*</span></span>`;
+}
+
 function deltaCell(p) {
   if (p.delta == null) {
     // 只有基线时明确说明原因，而不是干巴巴一个破折号
@@ -708,7 +721,7 @@ function renderProductTable() {
         <div class="prodline">${esc(p.name)}</div>
         <div class="sh">${p.url ? `<a href="${esc(p.url)}" target="_blank" rel="noopener">商品页</a>` : ''}${priceInline(p)}</div>
       </td>
-      <td class="num" data-l="累计">${fmt(p.cumulative)}</td>
+      <td class="num" data-l="累计">${cumCell(p)}</td>
       <td class="num ${p.todayDelta > 0 ? 'up' : ''}" data-l="今日">${todayCell(p.todayDelta)}</td>
       <td class="num dim" data-l="最近">${deltaCell(p)}</td>
       <td class="num dim hide-m" data-l="窗口">${deltaTxt(p.cumulativeInWindow)}</td>
@@ -974,8 +987,8 @@ function renderDelta(series) {
 
   if (!usable.length) {
     box.innerHTML = `<div class="empty"><b>还看不出${ChartKit.PERIOD_TEXT[chartPeriod]}的销量</b>
-      增量需要相邻两个周期都有数据才能算<br>
-      <span style="font-size:11px">第一个周期只能当基线，无法算出它卖了多少</span></div>`;
+      同一周期内至少要有两次采集才能算出增量<br>
+      <span style="font-size:11px">多等一次采集，或把周期切到「每次采集」先看单次变化</span></div>`;
     return;
   }
 
@@ -986,11 +999,13 @@ function renderDelta(series) {
     fmtV: v => (v > 0 ? '+' : '') + String(Math.round(v))
   });
   const total = usable.reduce((a, s) => a + s.points.reduce((x, p) => x + p.v, 0), 0);
+  const hasFirst = usable.some(s => s.points.some(p => p.firstBasis));
   box.innerHTML = `<div class="legend">${ChartKit.legend(usable)}</div>` + (svg || '') +
     `<div class="foot" style="border:none;padding-top:8px;margin-top:6px">
       每个点 = 该${ChartKit.PERIOD_TEXT[chartPeriod]}区间内新增的销量（本期累计 − 上期累计）
-      ${usable.length === 1 ? `　区间合计 ${Math.round(total)}` : ''}
-      　平台会在日切剔除退款，数字小幅回退时这里会出现负值，属正常修正
+      　区间合计 <b>${total > 0 ? '+' : ''}${Math.round(total)}</b><br>
+      ${hasFirst ? `空心点「≈」是第一个${ChartKit.PERIOD_TEXT[chartPeriod]}：之前没有基线，按期内首次采集起算，仅供参考　` : ''}
+      0 点前后读数可能短暂偏低（读到了平台的旧数据），这类读数会被自动剔除；只有一直没涨回去的才算真实回调
     </div>`;
 }
 
@@ -1654,7 +1669,10 @@ async function openHistory(id) {
     const rows = d.history.map(h => `<tr>
       <td class="dim" style="white-space:nowrap">${new Date(h.ts).toLocaleString('zh-CN',{hour12:false})}</td>
       <td class="num">${h.ok ? fmt(h.soldTotal) : '<span class="dim">失败</span>'}</td>
-      <td class="dim">${srcName(h.source)}${h.note ? ' · ' + esc(h.note) : ''}${h.failReason ? ' · ' + esc(h.failReason) : ''}</td></tr>`).join('');
+      <td class="dim">${srcName(h.source)}${h.note ? ' · ' + esc(h.note) : ''}${h.failReason ? ' · ' + esc(h.failReason) : ''}${
+        h.excluded
+          ? ' · <span class="tag" title="这条读数比之前低，但之后又涨回了回退前的高点，判定为读到了旧数据，不参与统计">过期读数·已剔除</span>'
+          : ''}</td></tr>`).join('');
     openModal(`<div class="ch">${esc(p.name)} · 历史记录</div>
       ${d.history.length ? `<div style="max-height:52vh;overflow-y:auto"><table><thead><tr><th>时间</th><th class="num">累计已售</th><th>来源</th></tr></thead><tbody>${rows}</tbody></table></div>`
         : '<div class="empty dim">暂无记录</div>'}
