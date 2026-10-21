@@ -144,6 +144,37 @@ function deltaByPeriod(points, period) {
   return out;
 }
 
+/*
+店铺 / 分组的周期增量：**先按每个商品算出本周期增量，再按周期相加**。
+
+不能反过来（先把各品累计值求和，再跨周期相减）。两者在「所有品都有上一期基线」时
+结果相同，一旦某品缺上一期就天差地别：
+  今天中午新加一个已售 1635 的商品 → 店铺累计值当场从 54000 跳到 55635，
+  跨期相减会得出「这个店今天卖了 1635 件」，而那 1635 是人家一辈子的量。
+按品先算就没有这个问题：新品本期只有一条读数 → 算不出增量 → 记 0。
+
+周期内只有一条读数、又没有上期的品直接跳过（不编 0），所以不影响其它品。
+空心点只在「该周期内参与相加的点全都是 firstBasis」时才标 —— 只要有一个品有真基线，
+这个合计就是站得住的。
+*/
+function sumDeltas(seriesList, period) {
+  const p = period || 'day';
+  const acc = new Map();   // bucket 起点 → { v, allFirst, n }
+  for (const pts of (seriesList || [])) {
+    for (const d of deltaByPeriod(pts, p)) {
+      const k = new Date(d.t).getTime();
+      let o = acc.get(k);
+      if (!o) { o = { v: 0, allFirst: true, n: 0 }; acc.set(k, o); }
+      o.v += d.v;
+      o.n += 1;
+      if (!d.firstBasis) o.allFirst = false;
+    }
+  }
+  return [...acc.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([t, o]) => ({ t: new Date(t).toISOString(), v: o.v, firstBasis: o.allFirst }));
+}
+
 /* 周期起点的显示文案 */
 function fmtBucket(t, period) {
   const d = new Date(t);
@@ -358,7 +389,7 @@ function legend(series, extra) {
 
 const ChartKit = {
   PALETTE, PERIODS, PERIOD_TEXT, color, sumSeries, valueAt, toSteps, shortName,
-  bucketStart, fmtBucket, cumulativeByPeriod, deltaByPeriod, periodDays, labelIndexes, pickTicks,
+  bucketStart, fmtBucket, cumulativeByPeriod, deltaByPeriod, sumDeltas, periodDays, labelIndexes, pickTicks,
   lineSvg, stepSvg, legend, bounds
 };
 

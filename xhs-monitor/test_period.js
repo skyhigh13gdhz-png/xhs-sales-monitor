@@ -131,6 +131,61 @@ console.log('\n[脏数据不应污染结果]');
   t('全脏数据 → 空', K.cumulativeByPeriod([{ t: at(9, 20), v: null }], 'day').length === 0);
 }
 
+/*
+店铺/分组的周期增量：先按品算，再相加。
+反着做（先把各品累计值求和、再跨周期相减）在「某品缺上一期」时会炸得很离谱，
+真实事故就发生在这里：新加一个已售 1635 的商品，店铺当天凭空多了 1635 件。
+*/
+console.log('\n[店铺周期增量：先按品算，再相加]');
+{
+  // 事故复刻：眼罩昨天 54000，今天还是 54000；11:27 新加一个已售 1635 的商品
+  const A = [{ t: at(21, 20), v: 54000 }, { t: at(11, 21), v: 54000 }];
+  const B = [{ t: at(11, 21), v: 1635 }, { t: at(13, 21), v: 1635 }];
+
+  // 先求和再相减（错误做法）会得到什么
+  const wrong = K.deltaByPeriod(K.sumSeries([A, B]), 'day');
+  t('错误做法确实会算出 +1635（复刻事故）', vals(wrong)[0] === 1635, wrong);
+
+  const right = K.sumDeltas([A, B], 'day');
+  t('正确做法是 0（新品一件没卖，只是刚被纳入监控）', vals(right).length === 1 && vals(right)[0] === 0, right);
+  t('合计不再是「它一辈子的销量」', vals(right).reduce((a, v) => a + v, 0) === 0, vals(right));
+}
+
+console.log('\n[店铺周期增量：多品都涨时，与逐品相加一致]');
+{
+  const A = [{ t: at(9, 20), v: 100 }, { t: at(21, 20), v: 110 }, { t: at(21, 21), v: 130 }];
+  const B = [{ t: at(12, 20), v: 500 }, { t: at(12, 21), v: 520 }];
+  const d = K.sumDeltas([A, B], 'day');
+  // 10-20：A 从 100 涨到 110 = 10；B 当天只有一条读数，算不出来 → 不参与，也不编 0 影响别人
+  t('第一天 = 10（B 当天只有一条读数，不能把 500 全算成当天销量）', vals(d)[0] === 10, d);
+  // 10-21：A 130 − 110 = 20；B 520 − 500 = 20
+  t('第二天 = 20 + 20 = 40', vals(d)[1] === 40, d);
+}
+
+console.log('\n[店铺周期增量：空心点只在全是起算点时标]');
+{
+  const A = [{ t: at(9, 20), v: 100 }, { t: at(9, 21), v: 110 }];   // 21 号有真基线
+  const B = [{ t: at(9, 21), v: 500 }, { t: at(12, 21), v: 505 }];    // 21 号才起算
+  const d = K.sumDeltas([A, B], 'day');
+  t('21 号合计 = 10 + 5 = 15', vals(d)[0] === 15, d);
+  t('有真基线就不标空心点', d[0].firstBasis === false, d[0]);
+
+  const only = K.sumDeltas([
+    [{ t: at(9, 21), v: 100 }, { t: at(12, 21), v: 110 }],
+    [{ t: at(9, 21), v: 500 }, { t: at(12, 21), v: 505 }]
+  ], 'day');
+  t('全部都是起算点时才标空心点', only[0].firstBasis === true && vals(only)[0] === 15, only[0]);
+}
+
+console.log('\n[店铺周期增量：单条序列时与 deltaByPeriod 等价]');
+{
+  const A = [{ t: at(9, 20), v: 100 }, { t: at(21, 20), v: 130 }, { t: at(21, 21), v: 150 }];
+  const a = K.deltaByPeriod(A, 'day'), b = K.sumDeltas([A], 'day');
+  t('逐点数值一致', JSON.stringify(vals(a)) === JSON.stringify(vals(b)), { a: vals(a), b: vals(b) });
+  t('firstBasis 也一致', a.map(x => !!x.firstBasis).join() === b.map(x => !!x.firstBasis).join(), b);
+  t('空输入 → 空', K.sumDeltas([], 'day').length === 0 && K.sumDeltas([[], []], 'day').length === 0);
+}
+
 console.log('\n[取数窗口随周期放大]');
 {
   t('日 → 31 天', K.periodDays('day') === 31);

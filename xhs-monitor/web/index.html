@@ -1030,6 +1030,11 @@ async function renderChart() {
   const d = await api('/api/chart?days=' + ChartKit.periodDays(chartPeriod)).catch(() => null);
   const sm = d ? (d.series || {}) : {};
 
+  /*
+  parts 是这条线的构成商品（各自的可信读数序列）。
+  累计图直接把各品累计值求和就成了；但增量图不能这么算 —— 详见 renderDelta。
+  agg 标记「这条线代表一个店/汇总」，算区间合计时只累加这些，避免把单品线重复算一遍。
+  */
   const series = [];
   let ci = 0;
   if (chartShop) {
@@ -1037,21 +1042,21 @@ async function renderChart() {
     if (sh.count === 1) {
       // 店内只有一个商品：不必重复画汇总线
       const p = sh.products[0];
-      series.push({ name: sh.shop, points: sm[p.id] || [], color: ChartKit.color(ci++) });
+      series.push({ name: sh.shop, points: sm[p.id] || [], parts: [sm[p.id] || []], agg: true, color: ChartKit.color(ci++) });
     } else {
       sh.products.forEach(p => series.push({
-        name: ChartKit.shortName(p.name, 9), points: sm[p.id] || [], color: ChartKit.color(ci++)
+        name: ChartKit.shortName(p.name, 9), points: sm[p.id] || [], parts: [sm[p.id] || []], color: ChartKit.color(ci++)
       }));
-      const sum = ChartKit.sumSeries(sh.products.map(p => sm[p.id] || []));
-      if (sum.length) series.push({ name: '店铺汇总', points: sum, color: 'var(--tx2)' });
+      const parts = sh.products.map(p => sm[p.id] || []);
+      const sum = ChartKit.sumSeries(parts);
+      if (sum.length) series.push({ name: '店铺汇总', points: sum, parts, agg: true, color: 'var(--tx2)' });
     }
   } else {
     // 默认：一家店一条线（店内多商品则求和），店只有 1 个商品时就是那条商品线
     gd.shops.forEach(sh => {
-      const pts = sh.count === 1
-        ? (sm[sh.products[0].id] || [])
-        : ChartKit.sumSeries(sh.products.map(p => sm[p.id] || []));
-      series.push({ name: sh.shop, points: pts, color: ChartKit.color(ci++) });
+      const parts = sh.products.map(p => sm[p.id] || []);
+      const pts = sh.count === 1 ? parts[0] : ChartKit.sumSeries(parts);
+      series.push({ name: sh.shop, points: pts, parts, agg: true, color: ChartKit.color(ci++) });
     });
   }
 
@@ -1094,8 +1099,15 @@ function renderDelta(series) {
   const card = $('#deltaCard'), box = $('#deltaBox');
   if (!card || !box) return;
 
+  // 多品店铺：先按每个品算出本周期增量，再按周期相加（不能拿累计值先求和再相减，
+  // 那样新加的品会把整段历史累计当成当天的销量）
   const usable = series
-    .map(s => ({ ...s, points: ChartKit.deltaByPeriod(s.points, chartPeriod) }))
+    .map(s => ({
+      ...s,
+      points: (s.parts && s.parts.length > 1)
+        ? ChartKit.sumDeltas(s.parts, chartPeriod)
+        : ChartKit.deltaByPeriod(s.points, chartPeriod)
+    }))
     .filter(s => s.points.length);
 
   const title = $('#deltaTitle');
@@ -1114,13 +1126,18 @@ function renderDelta(series) {
     // 增量一般是小整数，直接取整并带符号，比"1.2万"直观
     fmtV: v => (v > 0 ? '+' : '') + String(Math.round(v))
   });
-  const total = usable.reduce((a, s) => a + s.points.reduce((x, p) => x + p.v, 0), 0);
+  // 区间合计只累加「店/汇总」这一层的线。选中多品店铺时图上同时有单品线和店铺汇总，
+  // 全加一遍会把每个品算两次
+  const totFrom = usable.filter(s => s.agg).length ? usable.filter(s => s.agg) : usable;
+  const total = totFrom.reduce((a, s) => a + s.points.reduce((x, p) => x + p.v, 0), 0);
+  const multiSum = usable.some(s => s.agg && s.parts && s.parts.length > 1);
   const hasFirst = usable.some(s => s.points.some(p => p.firstBasis));
   box.innerHTML = `<div class="legend">${ChartKit.legend(usable)}</div>` + (svg || '') +
     `<div class="foot" style="border:none;padding-top:8px;margin-top:6px">
-      每个点 = 该${ChartKit.PERIOD_TEXT[chartPeriod]}区间内新增的销量（本期累计 − 上期累计）
+      每个点 = 该${ChartKit.PERIOD_TEXT[chartPeriod]}区间内新增的销量（本期累计 − 上期累计）${multiSum ? '；店铺线是各品分别算完再相加' : ''}
       　区间合计 <b>${total > 0 ? '+' : ''}${Math.round(total)}</b><br>
       ${hasFirst ? `空心点「≈」是第一个${ChartKit.PERIOD_TEXT[chartPeriod]}：之前没有基线，按期内首次采集起算，仅供参考　` : ''}
+      ${multiSum ? '新加入监控的商品只从它第一次采集起算，不会把之前的历史销量算进来　' : ''}
       0 点前后读数可能短暂偏低（读到了平台的旧数据），这类读数会被自动剔除；只有一直没涨回去的才算真实回调
     </div>`;
 }
