@@ -73,9 +73,18 @@ function parseShareText(input) {
   return { url, title };
 }
 
-function parseSold(raw) {
+/*
+「24 小时内 N 人加购」的匹配式。
+这个数和「已售」共用页面上同一个文案位（接口里是 priceH5.itemAnalysisDataText），
+平台轮换展示哪一个由它自己决定。所以两个都得认，且不能互相污染。
+*/
+const CART_RE = /([0-9]+(?:\.[0-9]+)?)\s*(万|千|w|k)?\s*\+?\s*人(?:已)?加购/i;
+// 「已售 / 销量 / 已购买 / 售出 / N人付款」——出现这些才算销量文案
+const SOLD_HINT_RE = /已售|销量|已购买|售出|人付款|人已付款|人购买/;
+
+function parseCart(raw) {
   if (!raw) return null;
-  const m = String(raw).replace(/\s+/g, '').match(/([0-9]+(?:\.[0-9]+)?)\s*(万|千|w|k)?/i);
+  const m = String(raw).match(CART_RE);
   if (!m) return null;
   let n = parseFloat(m[1]);
   if (!isFinite(n)) return null;
@@ -83,6 +92,45 @@ function parseSold(raw) {
   if (u === '万' || u === 'w') n *= 10000;
   else if (u === '千' || u === 'k') n *= 1000;
   return Math.round(n);
+}
+
+function parseSold(raw) {
+  if (!raw) return null;
+  const s = String(raw).replace(/\s+/g, '');
+  /*
+  先把「加购」挡在门外。
+  「24小时内24人加购」里第一个数字是 24（小时数），
+  不加这道闸的话 parseSold 会把它当成销量 24 读进去——
+  那不是"数据不准"，那是把加购人数当成了销量，属于假数据。
+  只有确认这是销量文案（含「已售/销量/…」）时才继续解析。
+  */
+  if (CART_RE.test(s) && !SOLD_HINT_RE.test(s)) return null;
+  const m = s.match(/([0-9]+(?:\.[0-9]+)?)\s*(万|千|w|k)?/i);
+  if (!m) return null;
+  let n = parseFloat(m[1]);
+  if (!isFinite(n)) return null;
+  const u = (m[2] || '').toLowerCase();
+  if (u === '万' || u === 'w') n *= 10000;
+  else if (u === '千' || u === 'k') n *= 1000;
+  return Math.round(n);
+}
+
+/*
+在整个接口返回里兜底找加购数。
+为什么需要兜底：现在（2026-10-21 实测 11 个商品）免登录接口**没有**加购字段，
+只有「已售X」。但字段位置是平台说了算的——它今天放在 priceH5，明天可能挪到别处。
+与其等它挪走之后再修，不如扫描全部字符串叶子：谁带「N人加购」就取谁。
+取最大值：多个位置都提及时，按更完整的那个算（比如商品维度 > 某个 SKU 维度）。
+*/
+function findCartDeep(json) {
+  let hit = null;
+  (function walk(o, depth) {
+    if (hit !== null || o == null || depth > 12) return;
+    if (typeof o === 'string') { hit = parseCart(o); return; }
+    if (Array.isArray(o)) { for (const x of o) { walk(x, depth + 1); if (hit !== null) return; } return; }
+    if (typeof o === 'object') { for (const k of Object.keys(o)) { walk(o[k], depth + 1); if (hit !== null) return; } }
+  })(json, 0);
+  return hit;
 }
 
 /*
@@ -216,8 +264,27 @@ async function fetchItem(itemId) {
   const sold = parseSold(soldText);
   const shopSold = parseSold(shopSoldText);
 
+  /*
+  加购数：先看销量文案位（平台轮换展示时，那一格放的就是加购数），
+  再兜底全接口扫描。取不到就是 null——没有就是没有，不编 0。
+  */
+  const cartFromText = parseCart(soldText);
+  const cartCount = cartFromText !== null ? cartFromText : findCartDeep(j);
+  const cartRaw = cartFromText !== null ? String(soldText).trim() : null;
+
   if (sold === null) {
-    return { ok: false, failReason: '接口返回中没有销量字段（该商品可能不公开销量）', soldRaw: soldText };
+    /*
+    这次只读到加购、没读到销量：算采集失败（销量才是我们要记的数），
+    但加购数照样带回去，别白采一趟。
+    */
+    return {
+      ok: false,
+      failReason: cartCount !== null
+        ? '本次只返回了加购数，没有销量数字（平台该位置轮换展示，下次采集可能就有了）'
+        : '接口返回中没有销量字段（该商品可能不公开销量）',
+      soldRaw: soldText,
+      cartCount, cartRaw
+    };
   }
 
   const fans = parseSold((sellerH5.fansAmount || '').replace(/^粉丝数\s*/, ''));
@@ -231,6 +298,7 @@ async function fetchItem(itemId) {
     soldApprox: res.approx,
     soldStep: res.step,
     shopSold,
+    cartCount, cartRaw,
     // descriptionMain.name 是纯标题，descriptionH5.name 常带规格后缀
     title: (descMain.name || descH5.name || '').trim().slice(0, 80),
     shopName: (sellerH5.name || '').trim(),
@@ -256,4 +324,4 @@ async function resolveItemId(url) {
   return extractItemId(out);
 }
 
-module.exports = { fetchItem, resolveItemId, extractItemId, parseShareText, parseSold, soldResolution, extractPrice, API };
+module.exports = { fetchItem, resolveItemId, extractItemId, parseShareText, parseSold, parseCart, findCartDeep, soldResolution, extractPrice, API };

@@ -89,6 +89,9 @@ function overview(days) {
       cumulative: d.cumulative ?? null,
       delta: d.delta ?? null,
       todayDelta: d.todayDelta ?? null,
+      // 24h 加购：只取最新一条，没有就是 null
+      cartCount: d.cartCount ?? null,
+      cartTs: d.cartTs ?? null,
       // 今早首采低于昨夜时被排除在今日增量之外的那笔下修，界面要标出来
       todayCut: d.todayCut || 0,
       todayBase: d.todayBase ?? null,
@@ -127,7 +130,7 @@ function overview(days) {
     },
     job: { running: job.running, total: job.total, done: job.done, current: job.current, error: job.error,
            trigger: job.trigger,
-           results: job.results.map(r => ({ name: r.name, ok: r.ok, soldTotal: r.soldTotal, delta: r.delta, failReason: r.failReason, via: r.via })) },
+           results: job.results.map(r => ({ name: r.name, ok: r.ok, soldTotal: r.soldTotal, delta: r.delta, failReason: r.failReason, via: r.via, cartCount: r.cartCount ?? null })) },
     schedule: {
       enabled: cfg.enabled,
       times: cfg.times,
@@ -165,7 +168,8 @@ function startCollect(ids, trigger = 'manual', slot = null) {
       job.done = i; job.total = total;
       job.current = r.name;
       job.results.push({ name: r.name, ok: r.ok, soldTotal: r.soldTotal, delta: r.delta,
-                         failReason: r.failReason, via: r.via });
+                         failReason: r.failReason, via: r.via,
+                         cartCount: r.cartCount === undefined ? null : r.cartCount });
     }
   })
     .then(results => {
@@ -276,7 +280,9 @@ const routes = {
     let baseline = null;
     if (auto && auto.ok) {
       store.addSnapshot(db, finalId, {
-        soldTotal: auto.soldTotal, source: 'auto-api', ok: true, price: auto.price, note: auto.raw || ''
+        soldTotal: auto.soldTotal, source: 'auto-api', ok: true, price: auto.price, note: auto.raw || '',
+        cartCount: auto.cartCount === undefined ? null : auto.cartCount,
+        cartRaw: auto.cartRaw || null
       });
       baseline = auto.soldTotal;
     }

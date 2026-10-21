@@ -175,7 +175,7 @@
   .empty{text-align:center;padding:38px 14px;color:var(--tx2)}
   .empty b{display:block;color:var(--tx);font-weight:500;margin-bottom:6px;font-size:14px}
 
-  svg{width:100%;height:auto;display:block}
+  svg{width:100%;height:auto;display:block;max-width:100%}
 
   .prog{height:5px;background:var(--line);border-radius:3px;overflow:hidden;margin:9px 0 7px}
   .prog i{display:block;height:100%;background:var(--accent);transition:width .3s}
@@ -225,6 +225,13 @@
   .parsehint .good{color:var(--teal);font-weight:500}
   .parsehint .bad{color:var(--red);font-weight:500}
 
+  /*
+  窄屏（手机）：表格改成"卡片流 + 数字网格"。
+  旧写法是 td.num 用 inline-block + margin-right 横排，
+  数值长短不一（1 位和 5 位）就会互相挤、换行后串到别人的标签上，
+  看着像错位。改成 grid 后每列等宽，标签在数值正上方，不会串行。
+  按日明细表（.dmtable）除外——它本来就是横向滚动的矩阵，横着看才对。
+  */
   @media (max-width:640px) {
     body{padding:12px 10px 70px}
     h1{font-size:16px}
@@ -233,20 +240,48 @@
     .actions button{flex:1 1 auto;padding:9px 12px}
     .kpis{grid-template-columns:1fr 1fr;gap:8px}
     .kv{font-size:19px}
-    .card{padding:13px 14px;border-radius:10px}
+    .kl{font-size:10.5px}
+    .card{padding:13px 12px;border-radius:10px}
     .grid2{grid-template-columns:1fr}
-    table,thead,tbody,tr,td{display:block;width:100%}
-    thead{display:none}
-    tr{border-bottom:.5px solid var(--line);padding:10px 0}
-    tr:last-child{border-bottom:none}
-    td{border:none;padding:2px 0;text-align:left !important}
-    td.num{text-align:left !important;display:inline-block;width:auto;margin-right:14px}
-    td.num::before{content:attr(data-l) " ";color:var(--tx3);font-size:11px}
-    td:last-child{margin-top:8px;padding-top:8px;border-top:.5px solid var(--line)}
+
+    table:not(.dmtable){display:block;width:100%}
+    table:not(.dmtable) thead{display:none}
+    table:not(.dmtable) tbody{display:block}
+    table:not(.dmtable) tr{
+      display:grid;
+      grid-template-columns:repeat(auto-fit,minmax(78px,1fr));
+      gap:8px 10px;align-items:end;
+      border-bottom:.5px solid var(--line);padding:11px 0;
+    }
+    table:not(.dmtable) tr:last-child{border-bottom:none}
+    table:not(.dmtable) td{display:block;width:auto;border:none;padding:0;text-align:left !important;
+      overflow-wrap:anywhere}
+    /* 商品/店铺名、说明行、按钮行各占整行；数字进网格 */
+    table:not(.dmtable) td.nm,
+    table:not(.dmtable) td.sh,
+    table:not(.dmtable) td:last-child{grid-column:1 / -1}
+    table:not(.dmtable) td.num{font-variant-numeric:tabular-nums}
+    table:not(.dmtable) td.num::before{
+      content:attr(data-l);display:block;color:var(--tx3);font-size:10.5px;
+      line-height:1.4;margin-bottom:1px}
+    table:not(.dmtable) td:last-child{padding-top:2px}
+    .prodrow td:first-child{padding-left:12px}
+    .shoprow td:first-child{padding-left:0}
+
     .hide-m{display:none !important}
     .ovtable .grow{padding:12px 0}
     .growname{font-size:14px;margin-bottom:2px}
     .mbox{padding:18px 16px}
+
+    /* 分组标签多的时候竖着换行会把 KPI 顶到屏幕外，改成横滑 */
+    .groupbar{flex-wrap:nowrap;overflow-x:auto;padding-bottom:3px;-webkit-overflow-scrolling:touch}
+    .gtab{flex:0 0 auto}
+    .chartctl,.sortctl{justify-content:flex-start}
+    .chartctl select{max-width:44vw}
+    .cmpname{flex:0 0 108px}
+    .rkname{flex:0 0 88px}
+    .dsum .ds{flex:1 1 44%;min-width:0}
+    .dsum .dsv{font-size:16px}
   }
 
   /* 图表控件与图例 */
@@ -269,6 +304,53 @@
   .rksub .rkrow{padding-left:16px}
   .rksub .rkname{flex:0 0 96px;font-size:11.5px;color:var(--tx2)}
   .rksub .rkbar>div{height:11px;opacity:.85}
+
+  /* 24 小时加购数：跟"已售/增量"不是一个口径，用中性色 + 前置标签区分，
+     免得被当成又一个销量数字 */
+  .cartcell{font-variant-numeric:tabular-nums;white-space:nowrap}
+  .cartcell .cn{font-weight:500}
+  .cartcell .cnone{color:var(--tx3);font-weight:400}
+  .cartnote{font-size:11px;color:var(--tx3);line-height:1.6}
+
+  /* 排序控件 */
+  .sortctl{display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+  .sortctl select{width:auto;padding:3px 8px;font-size:12px}
+  .sortbtn{padding:3px 10px;font-size:12px;white-space:nowrap}
+
+  /* 周期销量走势：顶部摘要条（区间合计 / 日均 / 峰值） */
+  .dsum{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+  .dsum .ds{background:var(--bg);border:.5px solid var(--line);border-radius:9px;padding:8px 12px;flex:1 1 110px;min-width:104px}
+  .dsum .dsl{font-size:11px;color:var(--tx2);margin-bottom:2px}
+  .dsum .dsv{font-size:17px;font-weight:500;font-variant-numeric:tabular-nums;overflow-wrap:break-word}
+  .dsum .dsv small{font-size:11px;font-weight:400;color:var(--tx3)}
+
+  /* 图 / 表 切换 */
+  .seg{display:inline-flex;border:.5px solid var(--line2);border-radius:8px;overflow:hidden}
+  .seg button{border:none;border-radius:0;padding:4px 13px;font-size:12px;background:transparent;color:var(--tx2);white-space:nowrap}
+  .seg button+button{border-left:.5px solid var(--line2)}
+  .seg button.on{background:var(--tx);color:var(--bg);font-weight:500}
+
+  /* 按日明细表：店铺 × 日期 矩阵。图看趋势、表看数，两个数都要能直接读到 */
+  .dmwrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border:.5px solid var(--line);border-radius:10px}
+  .dmtable{border-collapse:separate;border-spacing:0;font-size:12px;width:auto;min-width:100%}
+  .dmtable th,.dmtable td{padding:7px 11px;border-bottom:.5px solid var(--line);white-space:nowrap;
+    text-align:right;font-variant-numeric:tabular-nums}
+  .dmtable th:first-child,.dmtable td:first-child{
+    text-align:left;position:sticky;left:0;background:var(--card);z-index:2;
+    border-right:.5px solid var(--line);font-weight:500;
+    max-width:190px;overflow:hidden;text-overflow:ellipsis}
+  .dmtable thead th{position:sticky;top:0;background:var(--card);z-index:1;color:var(--tx2);font-weight:500}
+  .dmtable thead th:first-child{z-index:3}
+  .dmtable tbody tr:last-child td{border-bottom:none}
+  .dmtable td.pos{color:var(--up)}
+  .dmtable td.neg{color:var(--red)}
+  .dmtable td.zero{color:var(--tx3)}
+  .dmtable td.today{background:rgba(216,90,48,.10)}
+  .dmtable th.today{background:rgba(216,90,48,.16);color:var(--up)}
+  .dmtable td.tot{font-weight:500}
+  .dmtable tr.sumrow td{border-top:.5px solid var(--line2);font-weight:500;background:var(--bg);color:var(--tx)}
+  .dmtable tr.sumrow td:first-child{background:var(--bg);color:var(--tx2)}
+  .dmtable tr.sumrow td.today{background:rgba(216,90,48,.16)}
 </style>
 </head>
 <body>
@@ -296,6 +378,7 @@
   <div class="card">
     <div class="ch">
       <span>监控商品 <span class="dim" id="prodCount" style="font-weight:400"></span></span>
+      <span class="sortctl" id="sortCtl"></span>
       <span class="dim" style="font-weight:400;font-size:12px">窗口
         <select id="selDays" style="width:auto;padding:3px 8px;font-size:12px">
           <option value="1">1 天</option><option value="7" selected>7 天</option><option value="30">30 天</option>
@@ -318,7 +401,13 @@
 
   <!-- 周期内销量：回答"这段时间卖了多少"，和累计值互补，周期与累计走势共用 -->
   <div class="card" id="deltaCard">
-    <div class="ch"><span id="deltaTitle">周期销量走势</span></div>
+    <div class="ch">
+      <span id="deltaTitle">周期销量走势</span>
+      <span class="seg" id="deltaSeg">
+        <button data-dv="chart">走势图</button><button data-dv="table">明细表</button>
+      </span>
+    </div>
+    <div id="deltaSum"></div>
     <div id="deltaBox"></div>
   </div>
 
@@ -347,6 +436,9 @@ let currentGroup = '';   // '' = 全部；组名 = 该组；'__UNGROUPED__' = �
 let chartGroup = '';     // 「全部」视图下选中的分组
 let chartShop = '';      // 累计走势的店铺筛选，'' = 全部店铺
 let chartPeriod = 'day'; // 统计周期：each/day/week/month，两张走势图共用
+let deltaView = 'chart'; // 周期销量走势的呈现方式：chart=折线图 / table=按周期明细表
+let sortKey = 'today';   // 列表排序依据：today=今日增量 / cart=24h加购 / cum=累计已售 / delta=最近增量
+let sortDir = 'desc';    // 排序方向：desc=从高到低 / asc=从低到高
 
 function toast(msg) {
   const t = $('#toast');
@@ -363,6 +455,18 @@ async function api(path, opts) {
   return d;
 }
 function fmt(n) { return n == null ? '—' : Number(n).toLocaleString(); }
+
+/*
+图表画布宽度：按容器实际像素宽出图，让 viewBox 与屏幕 1:1。
+固定 680 宽 + svg{width:100%} 会在窄屏把整张图等比缩小，
+10.5px 的标签实际只剩 5px，手机上看不清（两个走势图都被"压扁"）。
+拿不到宽度时退回 680（桌面端的老行为）。
+*/
+function chartWidth(box) {
+  if (!box) return 680;
+  const w = box.clientWidth || (box.parentElement && box.parentElement.clientWidth) || 0;
+  return w > 0 ? Math.round(w) : 680;
+}
 function deltaTxt(v) { return v == null ? '—' : (v > 0 ? '+' + v : String(v)); }
 
 // 今日增量：null 表示今天还没采过，不能显示成 0
@@ -580,9 +684,12 @@ function renderKpis() {
 function jobLine(r) {
   const via = r.via === 'api' ? '接口' : (r.via && r.via.startsWith('browser') ? '浏览器' : '');
   const tag = via ? `<span class="dim"> [${via}]</span>` : '';
+  // 加购数拿到了就顺带显示：它是"当下热度"，和已售并排看才有意义
+  const cartTxt = (r.cartCount !== null && r.cartCount !== undefined)
+    ? `　24h加购 ${fmt(r.cartCount)}` : '';
   return r.ok
-    ? `<div class="ok">✓ ${esc(r.name)}${tag}　已售 ${fmt(r.soldTotal)}${r.delta != null ? `　(${deltaTxt(r.delta)})` : '　(建立基线)'}</div>`
-    : `<div class="no">✗ ${esc(r.name)}${tag}　${esc(r.failReason || '失败')}</div>`;
+    ? `<div class="ok">✓ ${esc(r.name)}${tag}　已售 ${fmt(r.soldTotal)}${r.delta != null ? `　(${deltaTxt(r.delta)})` : '　(建立基线)'}${cartTxt}</div>`
+    : `<div class="no">✗ ${esc(r.name)}${tag}　${esc(r.failReason || '失败')}${cartTxt}</div>`;
 }
 
 // 第一段：手动采集 + 本次进度明细
@@ -696,7 +803,11 @@ function renderGroupOverview() {
     return;
   }
 
-  const rows = gs.map(g => {
+  // 「全部」视图同样按当前排序依据排列分组（分组对象是 totalXxx 形状，cmpBy 认得）
+  const rows = [...gs].sort((a, b) => cmpBy(
+    (state.groupStats || {})[a.isUngrouped ? '未分组' : a.name] || {},
+    (state.groupStats || {})[b.isUngrouped ? '未分组' : b.name] || {}
+  )).map(g => {
     const key = g.isUngrouped ? '未分组' : g.name;
     const d = (state.groupStats || {})[key] || {};
     const items = d.items || [];
@@ -719,6 +830,7 @@ function renderGroupOverview() {
       <td class="num" data-l="商品">${g.count}<span class="dim"> / ${shops.length} 店</span></td>
       <td class="num" data-l="累计">${d.totalCumulative ? fmt(d.totalCumulative) : (noData ? '<span class="dim">待采集</span>' : '—')}</td>
       <td class="num ${d.totalToday > 0 ? 'up' : ''}" data-l="今日">${items.length ? deltaTxt(d.totalToday) : '—'}</td>
+      <td class="num cartcell" data-l="加购">${cartCell(d.totalCart, null, true)}</td>
       <td class="num dim hide-m" data-l="窗口">${items.length ? deltaTxt(d.totalWindow) : '—'}</td>
       <td class="num dim" data-l="最近">${items.length ? deltaTxt(d.totalDelta) : '—'}</td>
       <td class="num dim" data-l="价格">${priceTxt}</td>
@@ -734,11 +846,12 @@ function renderGroupOverview() {
   $('#tableBox').innerHTML = `<table class="ovtable">
     <thead><tr>
       <th class="num">分组</th><th class="num">商品</th><th class="num">累计已售</th><th class="num">今日增量</th>
-      <th class="num hide-m">窗口增量</th><th class="num">最近增量</th><th class="num">价格</th><th class="hide-m">今日组内最热</th><th></th>
+      <th class="num">24h 加购</th><th class="num hide-m">窗口增量</th><th class="num">最近增量</th><th class="num">价格</th>
+      <th class="hide-m">今日组内最热</th><th></th>
     </tr></thead>
     <tbody>${rows}</tbody></table>
     <div class="foot" style="border:none;padding-top:10px;margin-top:4px">
-      这是各组汇总。点任意一行进入该组，看组内各店铺的横向明细。
+      这是各组汇总，按<b>${esc(sortLabel())}</b>${sortDir === 'desc' ? '从高到低' : '从低到高'}排。点任意一行进入该组，看组内各店铺的横向明细。
     </div>`;
 
   $('#tableBox').querySelectorAll('.grow').forEach(tr => {
@@ -791,6 +904,81 @@ function perHourCell(p) {
   return p.perHour.toFixed(1);
 }
 
+/*
+24 小时加购数。
+它是平台给的即时快照（"近 24 小时有多少人加购"），既不是累计也不是增量：
+  - 不参与任何差值计算，只认最新那一次读到的数；
+  - 读不到就显示「—」，绝不写 0 —— 0 会让人以为"一个加购都没有"。
+免登录接口目前基本不给这个字段（实测 11 个商品全是「已售X」），
+所以常态就是「—」；哪天平台给了，这里直接就有数。
+*/
+function cartCell(v, ts, isSum) {
+  if (v === null || v === undefined) {
+    return '<span class="cnone" title="这次采集没返回加购数（免登录接口多数情况下不公开该字段）">—</span>';
+  }
+  const when = ts ? `，${shortT(ts)} 读到` : '';
+  const what = isSum ? '店内各商品最新一次加购数之和' : '24 小时内加购人数';
+  return `<span class="cn" title="${esc(what)}（只取最新一次读数${when}）">${fmt(v)}</span>`;
+}
+
+/* ---------- 列表排序 ----------
+用户想按「今日增量」或「24h 加购」排序，就别让人手动扫一遍表。
+四种依据共用一套比较逻辑，且统一规则：**没数据的永远沉到最后**。
+不这么做的话，null 会被当成 0，一堆"还没采到"的商品反而排在正在起量的前面。 */
+const SORTS = [
+  { k: 'today', t: '今日增量' },
+  { k: 'cart', t: '24h 加购' },
+  { k: 'cum', t: '累计已售' },
+  { k: 'delta', t: '最近增量' }
+];
+
+// 店铺对象用 totalXxx，商品对象用 xxx，两种形状都要能取到
+function sortVal(o, k) {
+  const pick = (...names) => {
+    for (const n of names) { const v = o[n]; if (v !== null && v !== undefined) return v; }
+    return null;
+  };
+  if (k === 'today') return pick('todayDelta', 'totalToday');
+  if (k === 'cart') return pick('cartCount', 'totalCart');
+  if (k === 'cum') return pick('cumulative', 'totalCumulative');
+  return pick('delta', 'totalDelta');
+}
+
+function cmpBy(a, b) {
+  const va = sortVal(a, sortKey), vb = sortVal(b, sortKey);
+  const na = va === null || va === undefined, nb = vb === null || vb === undefined;
+  if (na && nb) return 0;
+  if (na) return 1;      // 没数据沉底：它不代表"低"，只是还不知道
+  if (nb) return -1;
+  return sortDir === 'asc' ? va - vb : vb - va;
+}
+
+// 排序控件：建一次，之后只同步选中值，避免每 20 秒刷新把用户的下拉重置掉
+function renderSortCtl() {
+  const el = $('#sortCtl');
+  if (!el) return;
+  if (!$('#selSort')) {
+    el.innerHTML = `<span class="dim" style="font-size:12px">排序</span>` +
+      `<select id="selSort" title="排序依据">${SORTS.map(s =>
+        `<option value="${s.k}">${s.t}</option>`).join('')}</select>` +
+      `<button class="sortbtn" id="btnSortDir" title="切换排序方向"></button>`;
+    $('#selSort').onchange = () => { sortKey = $('#selSort').value; renderTable(); syncSortCtl(); };
+    $('#btnSortDir').onclick = () => {
+      sortDir = sortDir === 'desc' ? 'asc' : 'desc';
+      renderTable(); syncSortCtl();
+    };
+  }
+  syncSortCtl();
+}
+
+function syncSortCtl() {
+  const sel = $('#selSort'), btn = $('#btnSortDir');
+  if (sel) sel.value = sortKey;
+  if (btn) btn.textContent = sortDir === 'desc' ? '高 → 低' : '低 → 高';
+}
+
+const sortLabel = () => (SORTS.find(s => s.k === sortKey) || SORTS[0]).t;
+
 /* ---------- 组视图：按「店铺 → 商品」两层展示 ---------- */
 let collapsedShops = {};   // { '组名|店铺名': true } 折叠状态
 
@@ -805,7 +993,16 @@ function renderProductTable() {
     return;
   }
 
-  const rows = g.shops.map(sh => {
+  /*
+  列顺序在「表头 / 店铺行 / 商品行」三处必须完全一致。
+  之前商品行的第 6 格是「件/时」、第 7 格是「样本」，而表头对应位置写的是「价格」「记录」，
+  同一列上下两种含义 —— 窄屏一旦换行就会读串行。
+  现在统一成 9 列，「件/时」不再单独占一列（挪到「最近增量」的悬停说明里）：
+  它是按最近一段间隔外推的速度，噪声大，不值得为它挤掉一列。
+  */
+  const shops = [...g.shops].sort(cmpBy);
+
+  const rows = shops.map(sh => {
     const ck = key + '|' + sh.shop;
     const collapsed = !!collapsedShops[ck];
     const multi = sh.count > 1;
@@ -824,6 +1021,7 @@ function renderProductTable() {
       </td>
       <td class="num shopnum" data-l="店铺累计">${sh.totalCumulative ? fmt(sh.totalCumulative) : '—'}</td>
       <td class="num shopnum ${sh.totalToday > 0 ? 'up' : ''}" data-l="今日">${todayCell(sh.totalToday)}</td>
+      <td class="num shopnum cartcell" data-l="加购">${cartCell(sh.totalCart, null, true)}</td>
       <td class="num dim shopnum" data-l="最近">${deltaTxt(sh.totalDelta)}</td>
       <td class="num dim shopnum hide-m" data-l="窗口">${deltaTxt(sh.totalWindow)}</td>
       <td class="num dim shopnum" data-l="价格">${priceTxt || '—'}</td>
@@ -832,34 +1030,43 @@ function renderProductTable() {
     </tr>`;
 
     // 商品明细行：缩进显示，店铺名不再重复
-    const subs = collapsed ? '' : sh.products.map(p => `<tr class="prodrow">
+    const subs = collapsed ? '' : [...sh.products].sort(cmpBy).map(p => {
+      const rate = p.perHour == null ? ''
+        : `　折合 ${p.perHour.toFixed(1)} 件/时${p.perHourReliable === false ? '（间隔过短，仅参考）' : ''}`;
+      return `<tr class="prodrow">
       <td class="nm" data-l="商品">
         <div class="prodline">${esc(p.name)}</div>
         <div class="sh">${p.url ? `<a href="${esc(p.url)}" target="_blank" rel="noopener">商品页</a>` : ''}${priceInline(p)}</div>
       </td>
       <td class="num" data-l="累计">${cumCell(p)}</td>
       <td class="num ${p.todayDelta > 0 ? 'up' : ''}" data-l="今日">${todayCell(p.todayDelta, p.todayCut)}</td>
-      <td class="num dim" data-l="最近">${deltaCell(p)}</td>
+      <td class="num cartcell" data-l="加购">${cartCell(p.cartCount, p.cartTs)}</td>
+      <td class="num dim" data-l="最近" title="相邻两次采集的差${rate}">${deltaCell(p)}</td>
       <td class="num dim hide-m" data-l="窗口">${deltaTxt(p.cumulativeInWindow)}</td>
-      <td class="num dim" data-l="件/时">${perHourCell(p)}</td>
+      <td class="num dim" data-l="价格">${p.price == null ? '—' : '¥' + p.price}</td>
       <td class="dim" data-l="样本">${p.samples} 次${p.failedRuns ? ` <span class="tag p">失败${p.failedRuns}</span>` : ''}</td>
       <td style="white-space:nowrap">
         <button class="sm ghost" data-act="rec" data-id="${esc(p.id)}">补录</button>
         <button class="sm ghost" data-act="his" data-id="${esc(p.id)}">历史</button>
       </td>
-    </tr>`).join('');
+    </tr>`;
+    }).join('');
 
     return head + subs;
   }).join('');
 
+  const noCart = sortKey === 'cart' && !g.shops.some(sh => sh.totalCart !== null);
   $('#tableBox').innerHTML = `<table class="shoptable">
     <thead><tr>
-      <th>店铺 / 商品</th><th class="num">累计已售</th><th class="num">今日增量</th><th class="num">最近增量</th>
-      <th class="num hide-m">窗口增量</th><th class="num">价格</th><th>记录</th><th></th>
+      <th>店铺 / 商品</th><th class="num">累计已售</th><th class="num">今日增量</th><th class="num">24h 加购</th>
+      <th class="num">最近增量</th><th class="num hide-m">窗口增量</th><th class="num">价格</th><th>记录</th><th></th>
     </tr></thead>
     <tbody>${rows}</tbody></table>
     <div class="foot" style="border:none;padding-top:10px;margin-top:4px">
-      按店铺汇总，展开可看该店在组内的每个商品。点店铺行可折叠 / 展开。
+      按<b>${esc(sortLabel())}</b>${sortDir === 'desc' ? '从高到低' : '从低到高'}排，没有数据的排在最后；点店铺行可折叠 / 展开。<br>
+      <span class="cartnote">「24h 加购」是平台展示的近 24 小时加购人数，只取最新一次读数，不参与任何差值计算；
+      接口不公开时显示「—」。</span>
+      ${noCart ? '<br><span class="cartnote">当前还没有任何商品采到加购数，这一列暂时全是「—」。</span>' : ''}
     </div>`;
 
   // 点击店铺行折叠 / 展开（有多个商品时才可折叠）
@@ -1072,7 +1279,7 @@ async function renderChart() {
       <span style="font-size:11px">也可以到「采集管理」手动采一次</span></div>`;
   } else {
     const maxPts = Math.max(...usable.map(s => s.points.length));
-    const svg = ChartKit.lineSvg(usable, { values: true, fmtX });
+    const svg = ChartKit.lineSvg(usable, { values: true, fmtX, width: chartWidth(box) });
     box.innerHTML = `<div class="legend">${ChartKit.legend(usable)}</div>` +
       (svg || '') +
       (maxPts < 2 ? `<div class="foot" style="border:none;padding-top:8px;margin-top:4px">
@@ -1094,14 +1301,35 @@ async function renderChart() {
   if (g3) g3.onchange = () => { chartPeriod = g3.value; renderChart(); };
 }
 
-/* ---------- 周期销量走势：这段时间内卖了多少（增量），与累计值互补 ---------- */
+/* ---------- 周期销量走势：这段时间内卖了多少（增量），与累计值互补 ----------
+   两种看法，各解决一半问题：
+     走势图 —— 看形状（哪家在起量、哪天是拐点）
+     明细表 —— 看数（某店某天到底卖了多少，一格一个数，不用在图上找点）
+   用户最关心的是「按日」，而按日的点往往有七八个、四五条线，
+   光靠图上的小字标签读数是读不准的，所以把表做成一等公民。
+*/
+let lastDeltaSeries = [];   // 切换图/表时直接用，不必重新拉接口
+
+function bindDeltaSeg() {
+  const seg = $('#deltaSeg');
+  if (!seg) return;
+  seg.querySelectorAll('button[data-dv]').forEach(b => {
+    b.classList.toggle('on', b.dataset.dv === deltaView);
+    if (b._bound) return;
+    b._bound = true;
+    b.onclick = () => { deltaView = b.dataset.dv; renderDelta(lastDeltaSeries); };
+  });
+}
+
 function renderDelta(series) {
   const card = $('#deltaCard'), box = $('#deltaBox');
   if (!card || !box) return;
+  lastDeltaSeries = series || [];
+  bindDeltaSeg();
 
   // 多品店铺：先按每个品算出本周期增量，再按周期相加（不能拿累计值先求和再相减，
   // 那样新加的品会把整段历史累计当成当天的销量）
-  const usable = series
+  const usable = lastDeltaSeries
     .map(s => ({
       ...s,
       points: (s.parts && s.parts.length > 1)
@@ -1113,33 +1341,114 @@ function renderDelta(series) {
   const title = $('#deltaTitle');
   if (title) title.textContent = `周期销量走势 · ${ChartKit.PERIOD_TEXT[chartPeriod]}`;
 
+  const sumBox = $('#deltaSum');
   if (!usable.length) {
+    if (sumBox) sumBox.innerHTML = '';
     box.innerHTML = `<div class="empty"><b>还看不出${ChartKit.PERIOD_TEXT[chartPeriod]}的销量</b>
       同一周期内至少要有两次采集才能算出增量<br>
       <span style="font-size:11px">多等一次采集，或把周期切到「每次采集」先看单次变化</span></div>`;
     return;
   }
 
+  /*
+  区间合计只累加「店/汇总」这一层的线。选中多品店铺时图上同时有单品线和店铺汇总，
+  全加一遍会把每个品算两次。
+  */
+  const aggRows = usable.filter(s => s.agg);
+  const totFrom = aggRows.length ? aggRows : usable;
+  const total = totFrom.reduce((a, s) => a + s.points.reduce((x, p) => x + p.v, 0), 0);
+
+  // 摘要：合计 / 平均每期 / 峰值。图给形状，这三个数给结论
+  const periodSet = new Set();
+  let peak = null;
+  for (const s of totFrom) {
+    for (const p of s.points) {
+      periodSet.add(new Date(p.t).getTime());
+      if (!peak || p.v > peak.v) peak = { v: p.v, t: p.t, name: s.name };
+    }
+  }
+  const UNIT = { each: '次', day: '天', week: '周', month: '个月' }[chartPeriod] || '期';
+  const AVG = { each: '次均', day: '日均', week: '周均', month: '月均' }[chartPeriod] || '均';
+  const periods = periodSet.size || 1;
+  const avg = Math.round((total / periods) * 10) / 10;
+  const peakWhen = peak ? ChartKit.fmtBucket(peak.t, chartPeriod) : '';
+  if (sumBox) {
+    sumBox.innerHTML = `<div class="dsum">
+      <div class="ds"><div class="dsl">区间合计</div>
+        <div class="dsv" style="color:${total > 0 ? 'var(--up)' : 'var(--tx)'}">${total > 0 ? '+' : ''}${Math.round(total)}</div></div>
+      <div class="ds"><div class="dsl">${AVG}（共 ${periods} ${UNIT}）</div>
+        <div class="dsv">${avg > 0 ? '+' : ''}${avg}</div></div>
+      <div class="ds"><div class="dsl">单${UNIT === '次' ? '次' : '期'}最高</div>
+        <div class="dsv" style="color:var(--up)">${peak ? '+' + Math.round(peak.v) : '—'}
+          <small>${peak ? esc(peak.name) + ' · ' + esc(peakWhen) : ''}</small></div></div>
+    </div>`;
+  }
+
+  const multiSum = usable.some(s => s.agg && s.parts && s.parts.length > 1);
+  const hasFirst = usable.some(s => s.points.some(p => p.firstBasis));
+  const foot = `<div class="foot" style="border:none;padding-top:8px;margin-top:6px">
+      每个点 = 该${ChartKit.PERIOD_TEXT[chartPeriod]}区间内新增的销量（本期累计 − 上期累计）${multiSum ? '；店铺线是各品分别算完再相加' : ''}<br>
+      ${hasFirst ? `「≈」是第一个${ChartKit.PERIOD_TEXT[chartPeriod]}：之前没有基线，按期内首次采集起算，仅供参考　` : ''}
+      ${multiSum ? '新加入监控的商品只从它第一次采集起算，不会把之前的历史销量算进来　' : ''}
+      0 点前后读数可能短暂偏低（读到了平台的旧数据），这类读数会被自动剔除；只有一直没涨回去的才算真实回调
+    </div>`;
+
+  if (deltaView === 'table') {
+    box.innerHTML = deltaTableHtml(totFrom, chartPeriod, total) + foot;
+    return;
+  }
+
   const svg = ChartKit.lineSvg(usable, {
     values: true,
+    width: chartWidth(box),
     fmtX: t => ChartKit.fmtBucket(t, chartPeriod),
     // 增量一般是小整数，直接取整并带符号，比"1.2万"直观
     fmtV: v => (v > 0 ? '+' : '') + String(Math.round(v))
   });
-  // 区间合计只累加「店/汇总」这一层的线。选中多品店铺时图上同时有单品线和店铺汇总，
-  // 全加一遍会把每个品算两次
-  const totFrom = usable.filter(s => s.agg).length ? usable.filter(s => s.agg) : usable;
-  const total = totFrom.reduce((a, s) => a + s.points.reduce((x, p) => x + p.v, 0), 0);
-  const multiSum = usable.some(s => s.agg && s.parts && s.parts.length > 1);
-  const hasFirst = usable.some(s => s.points.some(p => p.firstBasis));
-  box.innerHTML = `<div class="legend">${ChartKit.legend(usable)}</div>` + (svg || '') +
-    `<div class="foot" style="border:none;padding-top:8px;margin-top:6px">
-      每个点 = 该${ChartKit.PERIOD_TEXT[chartPeriod]}区间内新增的销量（本期累计 − 上期累计）${multiSum ? '；店铺线是各品分别算完再相加' : ''}
-      　区间合计 <b>${total > 0 ? '+' : ''}${Math.round(total)}</b><br>
-      ${hasFirst ? `空心点「≈」是第一个${ChartKit.PERIOD_TEXT[chartPeriod]}：之前没有基线，按期内首次采集起算，仅供参考　` : ''}
-      ${multiSum ? '新加入监控的商品只从它第一次采集起算，不会把之前的历史销量算进来　' : ''}
-      0 点前后读数可能短暂偏低（读到了平台的旧数据），这类读数会被自动剔除；只有一直没涨回去的才算真实回调
-    </div>`;
+  box.innerHTML = `<div class="legend">${ChartKit.legend(usable)}</div>` + (svg || '') + foot;
+}
+
+/*
+按周期明细表：行 = 店铺（或汇总线），列 = 周期，格 = 该期新增销量。
+第一列冻结，横向滚动看历史；「合计」放在最左的数值位，不用滚就能看到谁最能卖。
+*/
+function deltaTableHtml(rows, period, total) {
+  const times = [...new Set(rows.flatMap(s => s.points.map(p => new Date(p.t).getTime())))].sort((a, b) => a - b);
+  if (!times.length) return '';
+
+  const nowBucket = ChartKit.bucketStart(Date.now(), period);
+  const maps = rows.map(s => new Map(s.points.map(p => [new Date(p.t).getTime(), p])));
+  const cellCls = (v, isNow) => (v == null ? 'zero' : (v > 0 ? 'pos' : (v < 0 ? 'neg' : 'zero'))) + (isNow ? ' today' : '');
+  const cellTxt = p => p == null ? '·' : ((p.v > 0 ? '+' : '') + Math.round(p.v) + (p.firstBasis ? '≈' : ''));
+
+  const head = `<thead><tr><th>${rows.some(s => s.agg) ? '店铺' : '商品'}</th><th>合计</th>` +
+    times.map(t => `<th class="${t === nowBucket ? 'today' : ''}">${esc(ChartKit.fmtBucket(new Date(t).toISOString(), period))}</th>`).join('') +
+    `</tr></thead>`;
+
+  const body = rows.map((s, i) => {
+    const m = maps[i];
+    const rowSum = s.points.reduce((a, p) => a + p.v, 0);
+    const cells = times.map(t => {
+      const p = m.get(t) || null;
+      return `<td class="${cellCls(p ? p.v : null, t === nowBucket)}"${p && p.firstBasis ? ' title="首个周期，按期内首次采集起算"' : ''}>${cellTxt(p)}</td>`;
+    }).join('');
+    return `<tr><td title="${esc(s.name)}">${esc(s.name)}</td>
+      <td class="tot">${rowSum > 0 ? '+' : ''}${Math.round(rowSum)}</td>${cells}</tr>`;
+  }).join('');
+
+  const sums = times.map(t => {
+    let sum = 0, has = false;
+    for (const m of maps) { const p = m.get(t); if (p) { sum += p.v; has = true; } }
+    return { sum, has };
+  });
+  const sumRow = `<tr class="sumrow"><td>合计</td>
+    <td class="tot">${total > 0 ? '+' : ''}${Math.round(total)}</td>` +
+    sums.map((o, i) => `<td class="${cellCls(o.has ? o.sum : null, times[i] === nowBucket)}">${o.has ? ((o.sum > 0 ? '+' : '') + Math.round(o.sum)) : '·'}</td>`).join('') +
+    `</tr>`;
+
+  return `<div class="dmwrap"><table class="dmtable">${head}<tbody>${body}${sumRow}</tbody></table></div>
+    <div class="cartnote" style="margin-top:6px">「·」= 该${period === 'each' ? '次' : '期'}没采到数或算不出增量（不是 0）；
+      「≈」= 首个周期按期内首次采集起算；底色列是当前所在的周期。</div>`;
 }
 
 /* ---------- 实际卖价走势：组内所有商品放进一张阶梯图 ---------- */
@@ -1194,7 +1503,7 @@ async function renderPrices() {
     <div class="dim" style="font-size:11px">到手价 = 划线价减去商家券/立减后的实付价</div>
   </div>`;
 
-  const svg = ChartKit.stepSvg(series);
+  const svg = ChartKit.stepSvg(series, { width: chartWidth($('#priceBox')) });
   let chart;
   if (svg) chart = svg;
   else chart = '<div class="empty dim" style="padding:22px 0">价格还没有变化过<br><span style="font-size:11px">有变更时会自动记录并画出阶梯</span></div>';
@@ -1225,7 +1534,7 @@ async function renderPrices() {
 
 function render() {
   renderBanner(); renderSchedBar(); renderGroupBar(); renderKpis();
-  renderCompare(); renderTable(); renderRank(); renderChart(); renderPrices();
+  renderSortCtl(); renderCompare(); renderTable(); renderRank(); renderChart(); renderPrices();
   renderCollectMgr();
 
   // 明细搬进「采集管理」后，结束时得说清去哪看，否则用户以为没跑完
@@ -1258,6 +1567,23 @@ function scheduleAutoRefresh() {
   const ms = document.hidden ? 60000 : 20000;
   autoTimer = setTimeout(() => { if (!document.hidden) refresh().catch(()=>{}); else scheduleAutoRefresh(); }, ms);
 }
+
+/*
+窗口尺寸变了要重画图：图表按容器实际像素宽出图，1:1 渲染。
+手机横竖屏切换、桌面拖窗口都要跟着变，否则图会被拉伸或压扁。
+只重画图表，不动表格（表格不依赖尺寸）。
+*/
+let resizeTimer = null, lastChartW = 0;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    if (!state) return;
+    const w = Math.round(document.documentElement.clientWidth);
+    if (Math.abs(w - lastChartW) < 24) return;   // 抖动一下不重画
+    lastChartW = w;
+    renderChart(); renderPrices();
+  }, 220);
+});
 
 /* ---------- 分组操作 ---------- */
 function groupOptions(selected) {
@@ -1843,9 +2169,9 @@ async function openHistory(id) {
     const p = state.products.find(x => x.id === id);
     const srcName = s => s === 'auto-api' ? '自动·接口' : s === 'auto-browser' ? '自动·浏览器' : s === 'manual' ? '手动' : s;
     const rows = d.history.map(h => `<tr>
-      <td class="dim" style="white-space:nowrap">${new Date(h.ts).toLocaleString('zh-CN',{hour12:false})}</td>
-      <td class="num">${h.ok ? fmt(h.soldTotal) : '<span class="dim">失败</span>'}</td>
-      <td class="dim">${srcName(h.source)}${h.note ? ' · ' + esc(h.note) : ''}${h.failReason ? ' · ' + esc(h.failReason) : ''}${
+      <td class="dim" data-l="时间">${new Date(h.ts).toLocaleString('zh-CN',{hour12:false})}</td>
+      <td class="num" data-l="累计">${h.ok ? fmt(h.soldTotal) : '<span class="dim">失败</span>'}</td>
+      <td class="dim" data-l="来源">${srcName(h.source)}${h.note ? ' · ' + esc(h.note) : ''}${h.failReason ? ' · ' + esc(h.failReason) : ''}${
         h.excluded
           ? ' · <span class="tag" title="这条读数比之前低，但之后又涨回了回退前的高点，判定为读到了旧数据，不参与统计">过期读数·已剔除</span>'
           : ''}</td></tr>`).join('');

@@ -213,21 +213,23 @@ function bounds(series, key) {
 两种情况都要去重——两天数据若在整段范围上等距插 4 个刻度，
 会画成「10/20 10/20 10/21 10/21」，看着像同一天出现了两次。
 规则：同一文案只画一次；与前一个标签像素间距不足就省略。
+窄屏（narrow）时最小间距按画布宽度缩，否则标签会互相挤掉。
 */
-function pickTicks(X, fx, times, PL, W, PR) {
+function pickTicks(X, fx, times, PL, W, PR, minGap) {
   const out = [];
+  const gap = minGap || 44;
   for (const t of times) {
     const x = X(t);
     if (x < PL - 1 || x > W - PR + 1) continue;
     const text = fx(t);
     const prev = out[out.length - 1];
-    if (prev && (prev.text === text || x - prev.x < 44)) continue;
+    if (prev && (prev.text === text || x - prev.x < gap)) continue;
     out.push({ x, text });
   }
   return out;
 }
 
-function axes(b, W, H, PL, PR, PT, PB, fmtY, fmtX, tickTimes) {
+function axes(b, W, H, PL, PR, PT, PB, fmtY, fmtX, tickTimes, narrow) {
   const iw = W - PL - PR, ih = H - PT - PB;
   const Y = v => PT + ih - ((v - b.vmin) / (b.vmax - b.vmin || 1)) * ih;
   const X = t => PL + ((t - b.tmin) / (b.tmax - b.tmin || 1)) * iw;
@@ -250,7 +252,9 @@ function axes(b, W, H, PL, PR, PT, PB, fmtY, fmtX, tickTimes) {
     for (let i = 0; i < n; i++) a.push(b.tmin + ((b.tmax - b.tmin) * i) / (n - 1));
     return a;
   })();
-  const xl = pickTicks(X, fx, times, PL, W, PR).map(o => {
+  // 窄屏放不下 44px 的标签间距，按可用宽度按比例收窄
+  const minGap = narrow ? Math.max(30, Math.round((W - PL - PR) / 5)) : 44;
+  const xl = pickTicks(X, fx, times, PL, W, PR, minGap).map(o => {
     // 两端的标签改成贴边的锚点，否则「10/20」会被画布裁掉半个字
     const anchor = o.x < PL + 14 ? 'start' : (o.x > W - PR - 14 ? 'end' : 'middle');
     return `<text x="${o.x.toFixed(1)}" y="${H - PB + 15}" font-size="11" text-anchor="${anchor}" fill="var(--tx3)">${o.text}</text>`;
@@ -285,7 +289,16 @@ series: [{ name, points:[{t,v}], color }]
 */
 function lineSvg(series, opt) {
   const o = opt || {};
-  const W = o.width || 680, H = o.height || 210, PL = 54, PR = 16, PT = 16, PB = 30;
+  // 画布宽度按实际渲染宽度给，而不是固定 680。
+  // 固定宽度 + svg{width:100%} 会让窄屏把整张图等比缩小：680→344 时
+  // 10.5px 的字实际只剩 5px，完全看不清（手机上两个图都"压扁"就是这个原因）。
+  // 按容器实际像素宽出图，viewBox 与像素 1:1，字号才是真实字号。
+  const W = Math.max(300, Math.round(o.width || 680));
+  const narrow = W < 520;
+  // 窄屏图更矮（宽度小），但线的条数不变 → 竖向要留更多空间，
+  // 否则多条线的数值标签会叠在一起看不清
+  const HH = o.height || (narrow ? 260 : 210);
+  const PL = narrow ? 42 : 54, PR = narrow ? 10 : 16, PT = 16, PB = 30;
   const b = bounds(series, 'points');
   if (!b) return null;
   const pad = (b.vmax - b.vmin) * 0.15 || 1;
@@ -299,7 +312,7 @@ function lineSvg(series, opt) {
     for (const s of series) for (const p of s.points || []) set.add(new Date(p.t).getTime());
     xt = [...set].sort((a, b) => a - b);
   }
-  const { X, Y, grid, xl } = axes(bb, W, H, PL, PR, PT, PB, fmtV, o.fmtX, xt);
+  const { X, Y, grid, xl } = axes(bb, W, HH, PL, PR, PT, PB, fmtV, o.fmtX, xt, narrow);
   const body = series.map(s => {
     const c = s.color;
     const xy = s.points.map(p => ({
@@ -340,7 +353,7 @@ function lineSvg(series, opt) {
     return line + dots + labels;
   }).join('');
 
-  return `<svg viewBox="0 0 ${W} ${H}" role="img">${grid}${body}${xl}</svg>`;
+  return `<svg viewBox="0 0 ${W} ${HH}" width="${W}" height="${HH}" role="img" preserveAspectRatio="xMidYMid meet">${grid}${body}${xl}</svg>`;
 }
 
 /*
@@ -350,14 +363,17 @@ series: [{ name, points:[{t,v}], color }]
 */
 function stepSvg(series, opt) {
   const o = opt || {};
-  const W = o.width || 680, H = o.height || 200, PL = 56, PR = 16, PT = 16, PB = 30;
+  const W = Math.max(300, Math.round(o.width || 680));
+  const narrow = W < 520;
+  const HH = o.height || (narrow ? 220 : 200);
+  const PL = narrow ? 46 : 56, PR = narrow ? 10 : 16, PT = 16, PB = 30;
   const steps = series.map(s => ({ ...s, steps: toSteps(s.points) })).filter(s => s.steps.length);
   const b = bounds(steps, 'steps');
   if (!b) return null;
   const pad = (b.vmax - b.vmin) * 0.18 || 1;
   const bb = { ...b, vmin: Math.max(0, b.vmin - pad), vmax: b.vmax + pad };
 
-  const { X, Y, grid, xl } = axes(bb, W, H, PL, PR, PT, PB, v => '¥' + (v < 100 ? v.toFixed(1) : Math.round(v)));
+  const { X, Y, grid, xl } = axes(bb, W, HH, PL, PR, PT, PB, v => '¥' + (v < 100 ? v.toFixed(1) : Math.round(v)), null, narrow);
 
   const body = steps.map(s => {
     const path = [];
@@ -377,7 +393,7 @@ function stepSvg(series, opt) {
     return `<polyline points="${line}" fill="none" stroke="${s.color}" stroke-width="1.8" stroke-linejoin="miter"/>${dots}`;
   }).join('');
 
-  return `<svg viewBox="0 0 ${W} ${H}" role="img">${grid}${body}${xl}</svg>`;
+  return `<svg viewBox="0 0 ${W} ${HH}" width="${W}" height="${HH}" role="img" preserveAspectRatio="xMidYMid meet">${grid}${body}${xl}</svg>`;
 }
 
 /* 图例：浏览器里用；返回 HTML 字符串 */

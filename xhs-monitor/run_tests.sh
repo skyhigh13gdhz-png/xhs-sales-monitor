@@ -30,9 +30,9 @@ md5sum() { command md5 -q "$1" 2>/dev/null || echo missing; }
 D0=$(md5sum "$DATA")
 S0=$(md5sum "$SCHED")
 
-CORE="test_core test_groups_explicit test_groups test_price test_scheduler test_shop_aggregate test_today test_share_text test_chartkit test_period test_rollback"
+CORE="test_core test_groups_explicit test_groups test_price test_scheduler test_shop_aggregate test_today test_share_text test_chartkit test_period test_rollback test_cart"
 API="test_api test_schedule_api test_share_api"
-UI="test_ui_charts test_ui_price test_ui_shopgroup test_ui_dissolve test_ui_manage test_ui_collectmgr test_ui_lastnext test_ui_layout test_ui_overview test_ui_today test_ui_todayhot test_ui_stale test_ui_daycut test_ui_shopdelta test_ui_share test_ui_period"
+UI="test_ui_charts test_ui_price test_ui_shopgroup test_ui_dissolve test_ui_manage test_ui_collectmgr test_ui_lastnext test_ui_layout test_ui_overview test_ui_today test_ui_todayhot test_ui_stale test_ui_daycut test_ui_shopdelta test_ui_share test_ui_period test_ui_cartsort"
 
 case "${1:-all}" in
   core) LIST=$CORE ;;
@@ -43,12 +43,33 @@ esac
 
 echo
 OVERALL=0
+
+# 有些界面测试是「只读 + 连真实服务」的（默认打 127.0.0.1:7788），
+# 服务没起来时它们会报 ERR_CONNECTION_REFUSED，同样表现为「没有结果行」。
+# 这种要跟「测试真的挂了」区分开，否则排查时会被引到错方向
+# （这里踩过：nohup 起的服务被沙箱回收，全量回归里 4 个测试集体「无法运行」，
+#   实际只是服务中途没了，代码没问题）。
+NEED_SERVER=0
+if printf '%s ' $LIST | grep -q "test_ui_lastnext\|test_ui_overview\|test_ui_today\|test_ui_period"; then
+  if curl -s --max-time 5 "http://127.0.0.1:7788/api/state?days=1" -o /dev/null; then
+    echo "✓ 真实服务在 7788 运行中，只读界面测试将直接连它"
+  else
+    echo "⚠️  7788 上没有服务在跑，只读界面测试会连接失败（先把 server.js 起起来）"
+    NEED_SERVER=1
+  fi
+fi
+echo
+
 for t in $LIST; do
   [ -f "$t.js" ] || continue
   OUT=$("$NODE" "$t.js" 2>&1)
   LINE=$(echo "$OUT" | grep -E "结果:" | tail -1)
   if [ -z "$LINE" ]; then
-    printf '  %-26s 无法运行（可能需要临时端口被占用）\n' "$t"
+    if echo "$OUT" | grep -q "ERR_CONNECTION_REFUSED"; then
+      printf '  %-26s 跳过（连不上 7788 服务，服务没起）\n' "$t"
+    else
+      printf '  %-26s 无法运行（脚本异常退出，看下面的输出）\n' "$t"
+    fi
     echo "$OUT" | tail -3 | sed 's/^/      /'
     OVERALL=1
   else
@@ -57,6 +78,7 @@ for t in $LIST; do
     echo "$LINE" | grep -qE "0 失败" || OVERALL=1
   fi
 done
+[ "$NEED_SERVER" = "1" ] && OVERALL=1
 
 # 2) 跑后校验：真实数据是否被改动
 #

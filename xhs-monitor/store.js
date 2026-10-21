@@ -226,6 +226,8 @@ function groupByShop(db, groupName, days) {
       id: p.id, name: p.name, url: p.url,
       price: priceIdx.has(p.id) ? priceIdx.get(p.id) : (p.price ?? null),
       priceOriginal: p.priceOriginal ?? null,
+      cartCount: d.cartCount ?? null,
+      cartTs: d.cartTs ?? null,
       cumulative: d.cumulative ?? null,
       delta: d.delta ?? null,
       todayDelta: d.todayDelta ?? null,
@@ -255,6 +257,7 @@ function groupByShop(db, groupName, days) {
       totalCumulative: withData.reduce((a, x) => a + x.cumulative, 0),
       totalDelta: b.products.reduce((a, x) => a + (x.delta || 0), 0),
       totalToday: sumToday(b.products),
+      totalCart: sumCart(b.products),
       totalWindow: b.products.reduce((a, x) => a + (x.cumulativeInWindow || 0), 0),
       priceMin: prices.length ? Math.min(...prices) : null,
       priceMax: prices.length ? Math.max(...prices) : null,
@@ -300,6 +303,8 @@ function groupCompare(db, days) {
     byGroup.get(g).push({
       id: p.id, name: p.name, shop: p.shop, url: p.url,
       price: latestPrice.has(p.id) ? latestPrice.get(p.id) : (p.price ?? null),
+      cartCount: d.cartCount ?? null,
+      cartTs: d.cartTs ?? null,
       cumulative: d.cumulative ?? null,
       delta: d.delta ?? null,
       todayDelta: d.todayDelta ?? null,
@@ -326,6 +331,7 @@ function groupCompare(db, days) {
       totalCumulative: withData.reduce((a, x) => a + x.cumulative, 0),
       totalDelta: items.reduce((a, x) => a + (x.delta || 0), 0),
       totalToday: sumToday(items),
+      totalCart: sumCart(items),
       totalWindow: items.reduce((a, x) => a + (x.cumulativeInWindow || 0), 0),
       // 只在真的有价格时才计算，避免 Math.min(...[]) 得到 Infinity
       priceMin: prices.length ? Math.min(...prices) : null,
@@ -373,6 +379,14 @@ function addSnapshot(db, productId, fields) {
     // 平台把「已售」取整显示时（如「已售5.4万+」），这个读数的分辨率只有 1000 件
     soldApprox: !!fields.soldApprox,
     soldStep: fields.soldStep || null,
+    /*
+    24 小时内加购人数。它是「平台当下这一刻的快照」，不是累计量，
+    所以只取最新一条，不参与任何差值计算——拿它做差没有意义。
+    取不到就是 null（免登录接口目前并不给这个数）。
+    */
+    cartCount: fields.cartCount === undefined || fields.cartCount === null
+      ? null : Number(fields.cartCount),
+    cartRaw: fields.cartRaw || null,
     // price = 到手价（有优惠时是券后实付），priceOriginal = 划线价
     price: fields.price === undefined ? null : fields.price,
     priceOriginal: fields.priceOriginal === undefined ? null : fields.priceOriginal,
@@ -475,6 +489,30 @@ function soldSeries(db, productId) {
 function lastValid(db, productId) {
   const list = soldSeries(db, productId);
   return list.length ? list[list.length - 1] : null;
+}
+
+/*
+最近一次读到的「24 小时内加购人数」。
+加购数是平台给的即时快照（"近 24 小时有多少人加购"），不是累计量也不是增量，
+所以唯一有意义的值就是**最新那一条**；老的读数只代表过去那个 24 小时，留着没用。
+
+刻意不过滤 ok：某次采集可能销量没读到（判失败）但加购拿到了，
+那条加购依然是当时的真实读数，照样要。
+*/
+function latestCart(db, productId) {
+  let hit = null;
+  for (const s of db.snapshots) {
+    if (s.productId !== productId) continue;
+    if (s.cartCount === null || s.cartCount === undefined) continue;
+    if (!hit || new Date(s.ts) > new Date(hit.ts)) hit = s;
+  }
+  return hit ? { cart: hit.cartCount, ts: hit.ts } : { cart: null, ts: null };
+}
+
+// 加购数求和：一个都没有就返回 null（不报 0，0 会被误读成"没人加购"）
+function sumCart(list) {
+  const vals = list.map(x => x.cartCount).filter(v => v !== null && v !== undefined);
+  return vals.length ? vals.reduce((a, v) => a + v, 0) : null;
 }
 
 function computeDelta(db, productId) {
@@ -603,10 +641,14 @@ function stats(db, days) {
     const last = recent.length ? recent[recent.length - 1].soldTotal : null;
     const cumulativeInWindow = first !== null && last !== null ? last - first : null;
     const failed = db.snapshots.filter(s => s.productId === p.id && !s.ok && new Date(s.ts).getTime() >= since).length;
+    const cart = latestCart(db, p.id);
     out[p.id] = {
       name: p.name, shop: p.shop, url: p.url, note: p.note,
       ...d,
       todayDelta: todayDelta(db, p.id),
+      // 加购只认最新的一条，旧读数不代表现在
+      cartCount: cart.cart,
+      cartTs: cart.ts,
       // 今早首采低于昨夜时被排除掉的那笔日切修正；>0 时界面要标出来，别让它悄悄消失
       todayCut: bl ? bl.absorbed : 0,
       todayBase: bl ? bl.base : null,
@@ -621,7 +663,7 @@ function stats(db, days) {
   return out;
 }
 
-module.exports = { load, save, upsertProduct, addSnapshot, lastValid, soldSeries, computeDelta, stats, todayDelta, todayBaseline, startOfDay, classifyDrop, DROP_ABS_FLOOR, DROP_RATIO, DAYBREAK_WINDOW,
+module.exports = { load, save, upsertProduct, addSnapshot, lastValid, latestCart, sumCart, soldSeries, computeDelta, stats, todayDelta, todayBaseline, startOfDay, classifyDrop, DROP_ABS_FLOOR, DROP_RATIO, DAYBREAK_WINDOW,
   listGroups, createGroup, renameGroup, deleteGroup, dissolveGroup, previewDissolve,
   groupCompare, groupByShop, buildPriceIndex, NO_SHOP,
   priceSeries, priceChanges, currentPrice, UNGROUPED, DB_FILE };

@@ -69,8 +69,9 @@ async function check(name, fn) {
   catch (e) { console.log('  ✗ ' + name + '\n      ' + e.message); fail++; }
 }
 
+// 区间合计在卡片顶部的摘要条里（#deltaSum），读整张卡片以免它挪位置就失效
 const totalOf = async p => {
-  const t = (await p.locator('#deltaBox').innerText()).replace(/\s+/g, ' ');
+  const t = (await p.locator('#deltaCard').innerText()).replace(/\s+/g, ' ');
   const m = t.match(/区间合计\s*([+-]?\d+)/);
   if (!m) throw new Error('没找到区间合计：' + t.slice(0, 200));
   return Number(m[1]);

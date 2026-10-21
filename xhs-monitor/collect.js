@@ -56,6 +56,9 @@ async function viaBrowser(ctx, product) {
     const r = extractSold(text);
     out.soldTotal = r.value;
     out.matched = r.matched;
+    // 加购数顺手也抓一下：浏览器通道看得到页面上「24小时内N人加购」那一行
+    const cart = api.parseCart(text);
+    if (cart !== null) out.cartCount = cart;
     const pm = text.match(/[¥￥]\s*([0-9]+(?:\.[0-9]+)?)/);
     if (pm) out.price = parseFloat(pm[1]);
     if (r.value === null) { out.failReason = '页面未找到销量字段'; return out; }
@@ -131,6 +134,9 @@ async function run(products, opts = {}) {
         correctedDrop: r.correctedDrop || null,
         soldApprox: r.soldApprox,
         soldStep: r.soldStep,
+        // 销量没读到（本次判失败）时，加购数拿到了也要存，别白采一趟
+        cartCount: r.cartCount === undefined ? null : r.cartCount,
+        cartRaw: r.cartRaw || null,
         price: r.price ?? null,
         priceOriginal: r.priceOriginal ?? null,
         priceDiscount: r.priceDiscount ?? null,

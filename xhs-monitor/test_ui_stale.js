@@ -134,7 +134,8 @@ async function check(name, fn) {
     return '已剔除';
   });
   await check('周期销量走势合计 = +30（19 + 11）', async () => {
-    const t = (await p.locator('#deltaBox').innerText()).replace(/\s+/g, ' ');
+    // 区间合计在卡片顶部的摘要条里（#deltaSum），读整张卡片以免它挪位置就失效
+    const t = (await p.locator('#deltaCard').innerText()).replace(/\s+/g, ' ');
     const m = t.match(/区间合计\s*\+?\s*(\d+)/);
     if (!m) throw new Error('没找到合计：' + t.slice(0, 160));
     if (Number(m[1]) !== 30) throw new Error('合计是 ' + m[1] + '，应为 30');
