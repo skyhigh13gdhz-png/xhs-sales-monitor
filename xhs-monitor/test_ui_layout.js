@@ -107,13 +107,15 @@ async function stopServer() { if (server) { try { server.kill(); } catch (_) {} 
     const y = await p.locator('#kpis').evaluate(el => el.getBoundingClientRect().top);
     return n + ' 个，top=' + Math.round(y) + 'px';
   });
-  await check('设置弹窗仍能打开', async () => {
+  await check('副标题的「设置」能打开采集管理', async () => {
     await p.locator('#btnEditSched').click();
-    await p.waitForTimeout(700);
+    await p.waitForTimeout(900);
     if (!await p.locator('#modal').isVisible()) throw new Error('弹窗未打开');
     const t = await p.locator('#mbox').innerText();
-    if (!t.includes('自动采集设置')) throw new Error('内容异常');
-    await p.locator('#sCancel').click();
+    // 周期设置已经并入采集管理，这里要确认入口确实通向它
+    if (!t.includes('采集管理')) throw new Error('弹窗内容异常：' + t.replace(/\s+/g, ' ').slice(0, 60));
+    if (!t.includes('自动采集')) throw new Error('采集管理里没有周期设置段');
+    await p.locator('#cmClose').click();
     return '正常';
   });
 

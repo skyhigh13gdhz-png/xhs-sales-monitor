@@ -15,22 +15,27 @@ const NODE_BIN = process.execPath;
 // 采集任务状态（单任务串行）
 let job = { running: false, total: 0, done: 0, current: '', results: [], startedAt: null, error: null, trigger: 'manual' };
 
-// 自动采集历史（供页面展示）
-// 位置跟 schedule.json 一样要可隔离：测试把 XHS_DB 指向临时目录时，日志也写那边去
+/*
+采集历史（供「采集管理」展示）。名字沿用了最早只记自动采集时的叫法，
+现在手动采集也一起记——日志只记一半的话，回头查「这个数什么时候变的」会漏线索。
+上限 80 条：每天 7 次自动采集约合 11 天，手动补采几次也还够翻。
+位置跟 schedule.json 一样要可隔离：测试把 XHS_DB 指向临时目录时，日志也写那边去。
+*/
 const DATA_DIR = process.env.XHS_DATA_DIR
   || (process.env.XHS_DB ? path.dirname(process.env.XHS_DB) : path.join(__dirname, 'data'));
 const autoLogFile = process.env.XHS_AUTOLOG || path.join(DATA_DIR, 'auto-log.json');
+const AUTOLOG_MAX = 80;
 let autoLog = [];
 try { if (fs.existsSync(autoLogFile)) autoLog = JSON.parse(fs.readFileSync(autoLogFile, 'utf8')); } catch (_) { autoLog = []; }
 function saveAutoLog() {
   try {
     fs.mkdirSync(path.dirname(autoLogFile), { recursive: true });
-    fs.writeFileSync(autoLogFile, JSON.stringify(autoLog.slice(0, 40), null, 2));
+    fs.writeFileSync(autoLogFile, JSON.stringify(autoLog.slice(0, AUTOLOG_MAX), null, 2));
   } catch (_) {}
 }
 function pushAutoLog(entry) {
   autoLog.unshift(entry);
-  if (autoLog.length > 40) autoLog = autoLog.slice(0, 40);
+  if (autoLog.length > AUTOLOG_MAX) autoLog = autoLog.slice(0, AUTOLOG_MAX);
   saveAutoLog();
 }
 
@@ -169,16 +174,20 @@ function startCollect(ids, trigger = 'manual', slot = null) {
                         ok: okN, failed: results.length - okN,
                         changes: results.filter(r => r.delta != null && r.delta !== 0)
                           // 回退（平台剔除退款）时 delta 为负，别写成 "+-14"
-                          .map(r => `${r.name} ${r.delta > 0 ? '+' : ''}${r.delta}`) };
-      if (trigger === 'auto') pushAutoLog(summary);
+                          .map(r => `${r.name} ${r.delta > 0 ? '+' : ''}${r.delta}`),
+                        // 只记失败数量的话，事后想查是谁挂了还得翻终端；直接把名字和原因带上
+                        fails: results.filter(r => !r.ok).map(r => `${r.name}：${r.failReason || '失败'}`),
+                        // 手动采集不受可信时段限制（用户主动点的就该执行），
+                        // 但凌晨读到的数是旧快照，事后看到数据怪，日志里得有个说法
+                        outsideWindow: !sched.inTrustWindow(new Date()) };
+      pushAutoLog(summary);
       console.log(`[${trigger === 'auto' ? '自动' : '手动'}] 完成 ${okN}/${results.length}${summary.changes.length ? '，变化: ' + summary.changes.join(', ') : ''}`);
     })
     .catch(e => {
       job.error = e.message;
-      if (trigger === 'auto') {
-        pushAutoLog({ at: new Date().toISOString(), trigger, slot, total: job.total, ok: 0, failed: job.total, error: e.message, changes: [] });
-        console.log('[自动采集] 失败: ' + e.message);
-      }
+      pushAutoLog({ at: new Date().toISOString(), trigger, slot, total: job.total, ok: 0, failed: job.total,
+                    error: e.message, changes: [], fails: [], outsideWindow: !sched.inTrustWindow(new Date()) });
+      console.log('[采集] 失败: ' + e.message);
     })
     .finally(() => {
       job.running = false;

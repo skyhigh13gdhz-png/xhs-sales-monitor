@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>小红书销量监控</title>
+<!-- 空图标：不给的话浏览器每次都去请求 /favicon.ico，界面测试会记下一堆 404 -->
+<link rel="icon" href="data:,">
 <style>
   * { box-sizing: border-box; min-width: 0; }
   :root {
@@ -201,6 +203,23 @@
   .slot input.bad{border-color:var(--red);background:var(--red-l)}
   #sWarn{color:var(--red);border-color:var(--red);background:var(--red-l)}
   .hintbox{font-size:11px;color:var(--tx3);line-height:1.7;background:var(--bg);border:.5px solid var(--line);border-radius:8px;padding:10px 12px;margin-top:4px}
+
+  /* 采集管理：三段式，段间用细线分开，否则三块内容会糊成一团 */
+  .mbox.wide{max-width:580px}
+  .cmsec{padding:14px 0;border-top:.5px solid var(--line)}
+  .cmsec:first-of-type{padding-top:2px;border-top:none}
+  .cmh{font-size:12px;font-weight:500;margin-bottom:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .cmh .dim{font-weight:400}
+  .cmrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  /* 历史采集日志：一行一条，变化明细压成小字，失败的单独标红 */
+  .loglist{max-height:230px;overflow-y:auto}
+  .logrow{padding:7px 0;border-bottom:.5px solid var(--line);font-size:12px}
+  .logrow:last-child{border-bottom:none}
+  .logrow .l1{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+  .logrow .lt{color:var(--tx3);font-variant-numeric:tabular-nums;flex:0 0 auto}
+  .logrow .l2{color:var(--tx3);font-size:11px;line-height:1.6;margin-top:2px;overflow-wrap:break-word}
+  .logrow .lfail{color:var(--red);font-size:11px;line-height:1.6;margin-top:2px}
+  .cmempty{font-size:12px;padding:8px 0}
   .parsehint{font-size:11px;line-height:1.6;margin-top:6px;min-height:0;overflow-wrap:break-word}
   .parsehint:empty{display:none}
   .parsehint .good{color:var(--teal);font-weight:500}
@@ -260,9 +279,8 @@
       <div class="sub" id="subLine">正在加载…</div>
     </div>
     <div class="actions">
-      <button class="ghost icon" id="btnSched" title="自动采集设置">⏰</button>
       <button class="ghost" id="btnManage">商品管理</button>
-      <button class="primary" id="btnCollect">立即采集</button>
+      <button class="primary" id="btnCollectMgr">采集管理</button>
     </div>
   </header>
 
@@ -309,13 +327,6 @@
     <div id="priceBox"></div>
   </div>
 
-  <!-- 采集进度：属于过程信息，放在主体数据之后，不占首屏 -->
-  <div class="card" id="jobCard" style="display:none">
-    <div class="ch">采集进度 <span class="dim" id="jobText"></span></div>
-    <div class="prog"><i id="jobBar" style="width:0%"></i></div>
-    <div class="log" id="jobLog"></div>
-  </div>
-
   <div class="foot">
     <b>口径说明：</b>「累计已售」是商品页对访客公开展示的数字，<b>不等于真实订单量</b>。退款、平台展示延迟、口径调整、商品链接变更都可能影响数值。
     请仅用于趋势判断，不要作为财务报表或竞品算账依据。<br>
@@ -331,6 +342,7 @@
 const $ = s => document.querySelector(s);
 let state = null, autoTimer = null;
 let wasCollecting = false;   // 用于判断采集「刚刚结束」，好弹一条完成提示
+let collectMgrOpen = false;  // 采集管理弹窗是否开着：开着的话 refresh 要顺带刷新里面两段
 let currentGroup = '';   // '' = 全部；组名 = 该组；'__UNGROUPED__' = 未分组
 let chartGroup = '';     // 「全部」视图下选中的分组
 let chartShop = '';      // 累计走势的店铺筛选，'' = 全部店铺
@@ -476,7 +488,7 @@ function renderSchedBar() {
   el.innerHTML = parts.join('　·　') +
     `　<span class="schedset" id="btnEditSched" title="自动采集设置">设置</span>`;
   const b = $('#btnEditSched');
-  if (b) b.onclick = openSched;
+  if (b) b.onclick = openCollectMgr;
 }
 
 // banner 只用于真正的异常，常态不占版面
@@ -559,21 +571,113 @@ function renderKpis() {
     <div class="kpi"><div class="kl">${topLabel}</div><div class="kv sm" style="font-size:14px">${topGroup ? esc(topGroup) + ' <span style="color:var(--up)">+' + topVal + '</span>' : '<span class="dim">暂无增量</span>'}</div></div>`;
 }
 
-function renderJob() {
-  const j = state.job;
-  const card = $('#jobCard');
-  if (!j.running && !j.results.length) { card.style.display = 'none'; return; }
-  card.style.display = '';
-  $('#jobText').textContent = j.running ? `${j.done}/${j.total} · ${j.current}` : `已完成 ${j.total} 个${j.trigger === 'auto' ? '（自动）' : ''}`;
-  const pct = j.total ? Math.round((j.done / j.total) * 100) : 0;
-  $('#jobBar').style.width = (j.running ? pct : 100) + '%';
-  $('#jobLog').innerHTML = j.results.slice().reverse().map(r => {
-    const via = r.via === 'api' ? '接口' : (r.via && r.via.startsWith('browser') ? '浏览器' : '');
-    const tag = via ? `<span class="dim"> [${via}]</span>` : '';
-    return r.ok
-      ? `<div class="ok">✓ ${esc(r.name)}${tag}　已售 ${fmt(r.soldTotal)}${r.delta != null ? `　(${deltaTxt(r.delta)})` : '　(建立基线)'}</div>`
-      : `<div class="no">✗ ${esc(r.name)}${tag}　${esc(r.failReason || '失败')}</div>`;
-  }).join('') + (j.error ? `<div class="no">错误：${esc(j.error)}</div>` : '');
+/* ---------- 采集管理 ----------
+手动采集、周期设置、采集日志，三件事集中在一个入口。
+原来它们散在主界面：按钮在顶栏、进度卡片挂在页面底部。
+主界面是看数据的地方，过程信息挤在里头既占版面又没人看。
+*/
+
+function jobLine(r) {
+  const via = r.via === 'api' ? '接口' : (r.via && r.via.startsWith('browser') ? '浏览器' : '');
+  const tag = via ? `<span class="dim"> [${via}]</span>` : '';
+  return r.ok
+    ? `<div class="ok">✓ ${esc(r.name)}${tag}　已售 ${fmt(r.soldTotal)}${r.delta != null ? `　(${deltaTxt(r.delta)})` : '　(建立基线)'}</div>`
+    : `<div class="no">✗ ${esc(r.name)}${tag}　${esc(r.failReason || '失败')}</div>`;
+}
+
+// 第一段：手动采集 + 本次进度明细
+function cmRunHtml() {
+  const j = state.job || {};
+  const last = state.lastCollectAt ? shortT(state.lastCollectAt) : '暂无';
+  const btn = j.running
+    ? `<button class="primary" disabled>采集中 ${j.done || 0}/${j.total || 0}</button>`
+    : `<button class="primary" id="cmRunNow">立即采集</button>`;
+  const pct = j.running && j.total ? Math.round((j.done / j.total) * 100) : 100;
+  const prog = (j.running || (j.results || []).length)
+    ? `<div class="prog"><i style="width:${pct}%"></i></div>` : '';
+  const res = j.results || [];
+  const detail = res.length
+    ? `<div class="log">${res.slice().reverse().map(jobLine).join('')}${j.error ? `<div class="no">错误：${esc(j.error)}</div>` : ''}</div>`
+    : `<div class="cmempty dim">${j.running ? '正在采集…' : '点「立即采集」刷新一次所有商品的销量'}</div>`;
+  return `<div class="cmh">立即采集 <span class="dim" style="font-weight:400">上次 ${esc(last)}</span></div>
+    <div class="cmrow">${btn}${j.running && j.current
+      ? `<span class="dim" style="font-size:12px">${esc(j.current)}</span>` : ''}</div>
+    ${prog}${detail}`;
+}
+
+// 第三段：历史采集日志
+function cmLogHtml() {
+  const log = state.autoLog || [];
+  if (!log.length) return '<div class="cmh">采集日志</div><div class="cmempty dim">还没有记录</div>';
+  return `<div class="cmh">采集日志 <span class="dim" style="font-weight:400">最近 ${log.length} 次</span></div>
+    <div class="loglist">${log.map(cmLogRow).join('')}</div>`;
+}
+
+function cmLogRow(e) {
+  const d = new Date(e.at);
+  const p2 = n => String(n).padStart(2, '0');
+  const when = `${d.getMonth() + 1}/${d.getDate()} ${p2(d.getHours())}:${p2(d.getMinutes())}`;
+  const how = e.trigger === 'auto' ? (e.slot ? `自动·${e.slot}` : '自动') : '手动';
+  const res = e.error
+    ? `<span class="no">整轮失败</span>`
+    : (e.failed
+      ? `<span class="no">${e.ok || 0}/${e.total}</span>　<span class="dim">${e.failed} 个失败</span>`
+      : `<span class="ok">${e.ok}/${e.total} 成功</span>`);
+  const chg = e.changes || [];
+  const chgTxt = chg.length
+    ? `<div class="l2">${esc(chg.slice(0, 6).join(' · '))}${chg.length > 6 ? ` 等 ${chg.length} 项` : ''}</div>` : '';
+  const failTxt = (e.fails || []).length
+    ? `<div class="lfail">✗ ${esc(e.fails.join('；'))}</div>`
+    : (e.error ? `<div class="lfail">✗ ${esc(e.error)}</div>` : '');
+  /* 手动采集不受可信时段限制（用户主动点的就该执行），但凌晨读到的数是旧快照。
+     事后看到数据怪，日志里得有个说法，不然无从查起。 */
+  const warn = e.outsideWindow
+    ? `<span class="tag p" title="这次采集落在可信时段外，读到的可能是平台返回的旧快照">窗口外</span>` : '';
+  return `<div class="logrow">
+    <div class="l1"><span class="lt">${esc(when)}</span><span>${esc(how)}</span>${res}${warn}</div>
+    ${chgTxt}${failTxt}</div>`;
+}
+
+async function openCollectMgr() {
+  const sc = await api('/api/schedule').catch(() => null);
+  if (!sc) return toast('读取采集设置失败');
+  collectMgrOpen = true;
+  openModal(`
+    <div class="ch">采集管理</div>
+    <div class="cmsec" id="cmRun">${cmRunHtml()}</div>
+    <div class="cmsec" id="cmSched">${cmSchedHtml(sc)}</div>
+    <div class="cmsec" id="cmLog">${cmLogHtml()}</div>
+    <div class="mrow"><button class="primary" id="cmClose">关闭</button></div>`, true);
+  bindCmRun();
+  bindCmSched(sc);
+  $('#cmClose').onclick = closeModal;
+}
+
+function bindCmRun() {
+  const b = $('#cmRunNow');
+  if (!b) return;
+  b.onclick = async () => {
+    b.disabled = true; b.textContent = '启动中…';
+    try {
+      await api('/api/collect', { method: 'POST', body: '{}' });
+      toast('开始采集');
+      // 刷新后 renderCollectMgr 会把按钮换成进度文案，这里不用再管
+      await refresh();
+    } catch (e) { toast(e.message); b.disabled = false; b.textContent = '立即采集'; }
+  };
+}
+
+/*
+弹窗开着时跟着刷新：进度要动、日志要更新。
+但只重绘这两段——不碰设置段，用户可能正改到一半的时间槽，一刷就把输入吃掉了。
+*/
+function renderCollectMgr() {
+  if (!collectMgrOpen) return;
+  const r = $('#cmRun'), l = $('#cmLog');
+  if (!r || !l) return;          // 弹窗被别的弹窗顶掉了
+  r.innerHTML = cmRunHtml();
+  l.innerHTML = cmLogHtml();
+  bindCmRun();
 }
 
 function renderTable() {
@@ -960,7 +1064,7 @@ async function renderChart() {
   if (!usable.length) {
     box.innerHTML = `<div class="empty"><b>还没有${ChartKit.PERIOD_TEXT[chartPeriod]}数据</b>
       该分组下还没有可绘制的记录<br>
-      <span style="font-size:11px">自动采集会按设定时间运行</span></div>`;
+      <span style="font-size:11px">也可以到「采集管理」手动采一次</span></div>`;
   } else {
     const maxPts = Math.max(...usable.map(s => s.points.length));
     const svg = ChartKit.lineSvg(usable, { values: true, fmtX });
@@ -1103,24 +1207,25 @@ async function renderPrices() {
 }
 
 function render() {
-  renderBanner(); renderSchedBar(); renderGroupBar(); renderKpis(); renderJob();
+  renderBanner(); renderSchedBar(); renderGroupBar(); renderKpis();
   renderCompare(); renderTable(); renderRank(); renderChart(); renderPrices();
+  renderCollectMgr();
 
-  // 采集进度卡在页面底部，结束时给一条短暂提示，避免用户以为没跑完
+  // 明细搬进「采集管理」后，结束时得说清去哪看，否则用户以为没跑完
   const jb = state.job || {};
   if (wasCollecting && !state.collecting && (jb.results || []).length) {
     const ok = jb.results.filter(r => r.ok).length;
     const bad = jb.results.length - ok;
     toast(bad
-      ? `采集结束：${ok} 成功，${bad} 失败　明细在页面底部`
-      : `采集完成：${ok} 个商品　明细在页面底部`);
+      ? `采集结束：${ok} 成功，${bad} 失败　明细见「采集管理」`
+      : `采集完成：${ok} 个商品　明细见「采集管理」`);
   }
   wasCollecting = state.collecting;
 
-  $('#btnCollect').disabled = state.collecting;
-  $('#btnCollect').textContent = state.collecting
+  // 采集中不禁用：点了正好进去看进度
+  $('#btnCollectMgr').textContent = state.collecting
     ? (jb.total ? `采集中 ${jb.done}/${jb.total}` : '采集中…')
-    : '立即采集';
+    : '采集管理';
 }
 
 async function refresh() {
@@ -1520,8 +1625,19 @@ function doDelete(id) {
   }).catch(e => toast('读取历史失败：' + e.message));
 }
 
-function openModal(html) { $('#mbox').innerHTML = html; $('#modal').classList.add('on'); }
-function closeModal() { $('#modal').classList.remove('on'); }
+// wide：采集管理有三段内容，480px 太挤
+function openModal(html, wide) {
+  $('#mbox').innerHTML = html;
+  $('#mbox').classList.toggle('wide', !!wide);
+  $('#modal').classList.add('on');
+}
+// 关弹窗统一在这里清标志：除了「关闭」按钮，点遮罩、confirmAction 的取消都会走这条路
+function closeModal() {
+  collectMgrOpen = false;
+  $('#modal').classList.remove('on');
+  // 内容一并清掉。留着虽然看不见，但「页面上现在有没有日志区」这类判断会失真
+  $('#mbox').innerHTML = '';
+}
 $('#modal').onclick = e => { if (e.target.id === 'modal') closeModal(); };
 
 // 从任意文本里抠出第一个链接。字符集与后端 parseShareText 保持一致，
@@ -1604,14 +1720,15 @@ function openAdd(presetGroup) {
   });
 }
 
-async function openSched() {
-  const sc = await api('/api/schedule').catch(() => null);
-  if (!sc) return toast('读取设置失败');
+// 第二段：自动采集周期设置
+// slotRow 提到外面：新增时间槽是绑定时的事，cmSchedHtml 只在打开那一刻跑
+const slotRow = v => `<div class="slot"><input type="time" value="${esc(v)}"><button class="sm ghost danger slot-del">删</button></div>`;
+
+function cmSchedHtml(sc) {
   const times = sc.times || ['09:00'];
   const W = sc.trustWindow || { start: '07:30', end: '23:50' };
-  const slotRow = v => `<div class="slot"><input type="time" value="${esc(v)}"><button class="sm ghost danger slot-del">删</button></div>`;
-  openModal(`
-    <div class="ch">自动采集设置</div>
+  return `
+    <div class="cmh">自动采集 <span class="dim" style="font-weight:400">${sc.enabled ? '已开启' : '已关闭'}</span></div>
     <label class="tgl"><input type="checkbox" id="sEnabled" ${sc.enabled ? 'checked' : ''}> 开启自动采集</label>
     <div class="formrow" style="margin-top:10px">
       <div style="grid-column:1/-1">
@@ -1630,10 +1747,11 @@ async function openSched() {
       上次执行：${sc.lastRunAt ? esc(shortT(sc.lastRunAt)) : '尚未自动执行'}<br>
       注意：电脑需要保持服务运行；关机或休眠期间无法采集。
     </div>
-    <div class="mrow">
-      <button class="ghost" id="sCancel">取消</button>
-      <button class="primary" id="sSave">保存</button>
-    </div>`);
+    <div class="mrow" style="margin-top:10px"><button class="primary" id="sSave">保存设置</button></div>`;
+}
+
+function bindCmSched(sc) {
+  const W = sc.trustWindow || { start: '07:30', end: '23:50' };
   const bindDel = () => $('#sSlots').querySelectorAll('.slot-del').forEach(b => {
     b.onclick = () => { b.closest('.slot').remove(); warnOutside(); };
   });
@@ -1662,15 +1780,17 @@ async function openSched() {
   $('#sSlots').addEventListener('input', warnOutside);
   bindDel();
   warnOutside();
-  $('#sCancel').onclick = closeModal;
   $('#sSave').onclick = async () => {
     const list = [...$('#sSlots').querySelectorAll('input[type=time]')].map(i => i.value).filter(Boolean);
     try {
       const r = await api('/api/schedule', { method: 'POST', body: JSON.stringify({
         enabled: $('#sEnabled').checked, runOnStart: $('#sOnStart').checked,
         times: list.length ? list : ['09:00'] }) });
-      closeModal();
       toast(r.enabled ? `已保存，下次执行 ${r.nextRunText || ''}` : '已关闭自动采集');
+      /* 保存完重绘这一段：「下次执行」「上次执行」要跟着变。
+         此时输入已落库，重绘不会吃掉东西；也不关弹窗——改完设置多半还想看一眼日志。 */
+      const fresh = await api('/api/schedule').catch(() => null);
+      if (fresh) { $('#cmSched').innerHTML = cmSchedHtml(fresh); bindCmSched(fresh); }
       await refresh();
     } catch (e) { toast(e.message); }
   };
@@ -1720,17 +1840,8 @@ async function openHistory(id) {
   } catch (e) { openModal(`<div class="ch">出错了</div><div class="dim">${esc(e.message)}</div>`); }
 }
 
-async function doCollect() {
-  try {
-    await api('/api/collect', { method: 'POST', body: '{}' });
-    toast('开始采集');
-    await refresh();
-  } catch (e) { toast(e.message); }
-}
-
 $('#btnManage').onclick = () => openManage();
-$('#btnSched').onclick = openSched;
-$('#btnCollect').onclick = doCollect;
+$('#btnCollectMgr').onclick = openCollectMgr;
 $('#selDays').onchange = refresh;
 document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh().catch(()=>{}); });
 
