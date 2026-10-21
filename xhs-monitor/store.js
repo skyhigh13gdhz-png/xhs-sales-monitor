@@ -241,6 +241,9 @@ function groupByShop(db, groupName, days) {
       cumulativeInWindow: d.cumulativeInWindow ?? null,
       samples: d.samples || 0,
       failedRuns: d.failedRuns || 0,
+      lastFailed: !!d.lastFailed,
+      lastFailReason: d.lastFailReason ?? null,
+      lastFailTs: d.lastFailTs ?? null,
       suspicious: !!d.suspicious
     });
   }
@@ -261,7 +264,9 @@ function groupByShop(db, groupName, days) {
       totalWindow: b.products.reduce((a, x) => a + (x.cumulativeInWindow || 0), 0),
       priceMin: prices.length ? Math.min(...prices) : null,
       priceMax: prices.length ? Math.max(...prices) : null,
-      failCount: b.products.reduce((a, x) => a + (x.failedRuns || 0), 0)
+      failCount: b.products.reduce((a, x) => a + (x.failedRuns || 0), 0),
+      // 店里有几个品最近一次采集失败（这些品的数据是旧的）
+      staleCount: b.products.filter(x => x.lastFailed).length
     };
   }).sort((a, b) => (b.totalDelta - a.totalDelta) || (b.totalCumulative - a.totalCumulative));
 
@@ -317,6 +322,9 @@ function groupCompare(db, days) {
       cumulativeInWindow: d.cumulativeInWindow ?? null,
       samples: d.samples || 0,
       failedRuns: d.failedRuns || 0,
+      lastFailed: !!d.lastFailed,
+      lastFailReason: d.lastFailReason ?? null,
+      lastFailTs: d.lastFailTs ?? null,
       suspicious: !!d.suspicious
     });
   }
@@ -336,7 +344,8 @@ function groupCompare(db, days) {
       // 只在真的有价格时才计算，避免 Math.min(...[]) 得到 Infinity
       priceMin: prices.length ? Math.min(...prices) : null,
       priceMax: prices.length ? Math.max(...prices) : null,
-      shopCount: new Set(items.map(x => x.shop).filter(Boolean)).size
+      shopCount: new Set(items.map(x => x.shop).filter(Boolean)).size,
+      staleCount: items.filter(x => x.lastFailed).length
     };
   }
   return out;
@@ -515,6 +524,29 @@ function sumCart(list) {
   return vals.length ? vals.reduce((a, v) => a + v, 0) : null;
 }
 
+/*
+采集健康度：只看**最近一次**采集成没成功，不看窗口内累计次数。
+理由：累计次数是历史包袱 —— 07:31 启用可信时段后一次都没失败过，
+但表里还挂着"失败1"（那 3 条都是 00:00 旧制度下采的），看着像现在还在出错。
+真正需要提醒的是"最近一次没采到" —— 那意味着这个数现在是旧的。
+返回 { lastFailed, lastFailReason, lastFailTs, failCount }
+*/
+function collectHealth(db, productId) {
+  let last = null;
+  let failCount = 0;
+  for (const s of db.snapshots) {
+    if (s.productId !== productId) continue;
+    if (!last || new Date(s.ts) > new Date(last.ts)) last = s;
+    if (!s.ok) failCount++;
+  }
+  return {
+    lastFailed: !!(last && !last.ok),
+    lastFailReason: last && !last.ok ? (last.failReason || '采集失败') : null,
+    lastFailTs: last && !last.ok ? last.ts : null,
+    failCount
+  };
+}
+
 function computeDelta(db, productId) {
   const valid = soldSeries(db, productId);
   if (valid.length < 2) return { delta: null, hours: null, cumulative: valid.length ? valid[valid.length-1].soldTotal : null, samples: valid.length };
@@ -642,6 +674,7 @@ function stats(db, days) {
     const cumulativeInWindow = first !== null && last !== null ? last - first : null;
     const failed = db.snapshots.filter(s => s.productId === p.id && !s.ok && new Date(s.ts).getTime() >= since).length;
     const cart = latestCart(db, p.id);
+    const health = collectHealth(db, p.id);
     out[p.id] = {
       name: p.name, shop: p.shop, url: p.url, note: p.note,
       ...d,
@@ -655,6 +688,10 @@ function stats(db, days) {
       windowDays: days,
       cumulativeInWindow,
       failedRuns: failed,
+      // 最近一次采集是否失败（主表格据此提示「数据是旧的」）
+      lastFailed: health.lastFailed,
+      lastFailReason: health.lastFailReason,
+      lastFailTs: health.lastFailTs,
       // 平台对高销量商品只给取整值（如「已售5.4万+」），这类商品的增量分辨率有限
       soldApprox: coarseInfo(series.length ? series[series.length - 1] : null).approx,
       soldStep: coarseInfo(series.length ? series[series.length - 1] : null).step
@@ -663,7 +700,7 @@ function stats(db, days) {
   return out;
 }
 
-module.exports = { load, save, upsertProduct, addSnapshot, lastValid, latestCart, sumCart, soldSeries, computeDelta, stats, todayDelta, todayBaseline, startOfDay, classifyDrop, DROP_ABS_FLOOR, DROP_RATIO, DAYBREAK_WINDOW,
+module.exports = { load, save, upsertProduct, addSnapshot, lastValid, latestCart, sumCart, collectHealth, soldSeries, computeDelta, stats, todayDelta, todayBaseline, startOfDay, classifyDrop, DROP_ABS_FLOOR, DROP_RATIO, DAYBREAK_WINDOW,
   listGroups, createGroup, renameGroup, deleteGroup, dissolveGroup, previewDissolve,
   groupCompare, groupByShop, buildPriceIndex, NO_SHOP,
   priceSeries, priceChanges, currentPrice, UNGROUPED, DB_FILE };

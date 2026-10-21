@@ -103,6 +103,10 @@ function overview(days) {
       // samples 只算有效记录；这里给全部快照条数（含失败），用于准确告知"会动到多少条历史"
       snapTotal: db.snapshots.filter(x => x.productId === p.id).length,
       failedRuns: d.failedRuns || 0,
+      // 最近一次采集是否失败（主表格据此显示「数据旧」）
+      lastFailed: !!d.lastFailed,
+      lastFailReason: d.lastFailReason ?? null,
+      lastFailTs: d.lastFailTs ?? null,
       cumulativeInWindow: d.cumulativeInWindow ?? null,
       lastTs: (db.snapshots.filter(x => x.productId === p.id).sort((a,b)=> new Date(b.ts)-new Date(a.ts))[0] || {}).ts || null,
       lastFail: (db.snapshots.filter(x => x.productId === p.id && !x.ok).sort((a,b)=> new Date(b.ts)-new Date(a.ts))[0] || {}).failReason || null

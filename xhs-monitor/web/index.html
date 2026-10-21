@@ -171,6 +171,10 @@
   .cutmark{margin-left:3px;font-size:10px;color:var(--red);opacity:.85;cursor:help;white-space:nowrap}
   .tag.p{background:var(--warnbg);color:var(--warntx)}
   .tag.gtag{background:var(--bg);color:var(--tx2);border:.5px solid var(--line2);margin-left:6px;max-width:130px;overflow:hidden;text-overflow:ellipsis;vertical-align:middle}
+  /* 「数据旧」：最近一次采集没采到。属于数据健康度，不是业务数据 → 中性灰，不抢眼 */
+  .stale{margin-left:4px;font-size:10px;color:var(--tx3);border:.5px solid var(--line2);
+    border-radius:4px;padding:0 5px;cursor:help;white-space:nowrap;opacity:.9}
+  .stale:hover{color:var(--tx2);border-color:var(--line2);background:var(--card)}
 
   .empty{text-align:center;padding:38px 14px;color:var(--tx2)}
   .empty b{display:block;color:var(--tx);font-weight:500;margin-bottom:6px;font-size:14px}
@@ -979,6 +983,29 @@ function syncSortCtl() {
 
 const sortLabel = () => (SORTS.find(s => s.k === sortKey) || SORTS[0]).t;
 
+/*
+「最近一次采集没采到」的标记。
+只在这一条真成立时才出现 —— 之前是「窗口内累计失败次数」，
+导致 07:31 启用可信时段后一次没失败过，表里还挂着"失败1"，
+看着像现在还在出错（那 3 条全是 00:00 旧制度下采的）。
+
+它属于「数据健康度」而不是业务指标，所以：
+- 用中性灰，不抢眼（红色会让人以为出了大问题）
+- 悬停才给原因，详情去「采集管理 → 采集日志」看
+*/
+function staleMark(staleCount, products) {
+  if (!staleCount) return '';
+  const list = (products || []).filter(p => p.lastFailed);
+  const first = list[0];
+  const when = first && first.lastFailTs ? shortT(first.lastFailTs) : '';
+  const reason = first && first.lastFailReason ? first.lastFailReason : '采集失败';
+  const title = list.length > 1
+    ? `${list.length} 个商品最近一次采集失败：${list.map(p => p.name).join('、')}`
+    : `「${first ? first.name : ''}」最近一次采集失败${when ? '（' + when + '）' : ''}：${reason}。`
+      + `这个数可能是旧的，详情见「采集管理 → 采集日志」。`;
+  return ` <span class="stale" title="${esc(title)}">数据旧</span>`;
+}
+
 /* ---------- 组视图：按「店铺 → 商品」两层展示 ---------- */
 let collapsedShops = {};   // { '组名|店铺名': true } 折叠状态
 
@@ -1025,7 +1052,7 @@ function renderProductTable() {
       <td class="num dim shopnum" data-l="最近">${deltaTxt(sh.totalDelta)}</td>
       <td class="num dim shopnum hide-m" data-l="窗口">${deltaTxt(sh.totalWindow)}</td>
       <td class="num dim shopnum" data-l="价格">${priceTxt || '—'}</td>
-      <td class="dim" data-l="记录">${sh.products.reduce((a, x) => a + x.samples, 0)} 次${sh.failCount ? ` <span class="tag p">失败${sh.failCount}</span>` : ''}</td>
+      <td class="dim" data-l="记录">${sh.products.reduce((a, x) => a + x.samples, 0)} 次${staleMark(sh.staleCount, sh.products)}</td>
       <td></td>
     </tr>`;
 
@@ -1044,7 +1071,7 @@ function renderProductTable() {
       <td class="num dim" data-l="最近" title="相邻两次采集的差${rate}">${deltaCell(p)}</td>
       <td class="num dim hide-m" data-l="窗口">${deltaTxt(p.cumulativeInWindow)}</td>
       <td class="num dim" data-l="价格">${p.price == null ? '—' : '¥' + p.price}</td>
-      <td class="dim" data-l="样本">${p.samples} 次${p.failedRuns ? ` <span class="tag p">失败${p.failedRuns}</span>` : ''}</td>
+      <td class="dim" data-l="样本">${p.samples} 次${staleMark(p.lastFailed ? 1 : 0, [p])}</td>
       <td style="white-space:nowrap">
         <button class="sm ghost" data-act="rec" data-id="${esc(p.id)}">补录</button>
         <button class="sm ghost" data-act="his" data-id="${esc(p.id)}">历史</button>
