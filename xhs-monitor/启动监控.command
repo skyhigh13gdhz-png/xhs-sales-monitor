@@ -4,9 +4,28 @@
 
 cd "$(dirname "$0")" || exit 1
 
-export NODE_PATH=/Users/weizhenliang/.workbuddy/binaries/node/workspace/node_modules
-export PLAYWRIGHT_BROWSERS_PATH=/Users/weizhenliang/.workbuddy/binaries/node/workspace/browsers
-NODE_BIN=/Users/weizhenliang/.workbuddy/binaries/node/versions/22.22.2-6/bin/node
+# 依赖路径：优先用环境变量，其次找本机的 node_modules，最后退回系统 node
+DEPS="${XHS_DEPS_DIR:-$HOME/.workbuddy/binaries/node/workspace/node_modules}"
+BROWSERS="${XHS_BROWSERS_DIR:-$HOME/.workbuddy/binaries/node/workspace/browsers}"
+if [ -d "$DEPS" ]; then
+  export NODE_PATH="$DEPS"
+  [ -d "$BROWSERS" ] && export PLAYWRIGHT_BROWSERS_PATH="$BROWSERS"
+fi
+
+# node 可执行文件：环境变量 > 本机受管版本 > 系统 node
+if [ -n "$XHS_NODE" ]; then
+  NODE_BIN="$XHS_NODE"
+elif [ -x "$HOME/.workbuddy/binaries/node/versions/22.22.2-6/bin/node" ]; then
+  NODE_BIN="$HOME/.workbuddy/binaries/node/versions/22.22.2-6/bin/node"
+elif command -v node >/dev/null 2>&1; then
+  NODE_BIN="$(command -v node)"
+else
+  echo "⚠️  找不到 node。请先安装 Node.js，或设置 XHS_NODE 指向 node 可执行文件。"
+  read -n 1 -s -r -p "按任意键退出…"
+  exit 1
+fi
+
+echo "使用 node: $NODE_BIN"
 
 clear
 echo "════════════════════════════════════════"

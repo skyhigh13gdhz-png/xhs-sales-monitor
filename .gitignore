@@ -11,6 +11,9 @@ xhs-monitor/auth/
 *.storage-state.json
 *.cookies.json
 
+# ---------- 一次性数据脚本：含真实商品链接与价格，别让它复活 ----------
+xhs-monitor/restore_data.js
+
 # ---------- 生成物 ----------
 xhs-monitor/report.html
 *.log

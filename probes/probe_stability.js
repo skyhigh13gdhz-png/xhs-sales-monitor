@@ -1,6 +1,6 @@
 const { execFile } = require('child_process');
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36';
-const ID = process.argv[2] || '6aacab557116f00001c2fca9';
+const ID = process.argv[2] || '6a0000000000000000000000';   // 用法: node probe_stability.js <24位商品ID>
 
 function curl(url) {
   return new Promise(resolve => {

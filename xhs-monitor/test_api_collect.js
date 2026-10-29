@@ -1,7 +1,18 @@
 const assert = require('assert');
 const { fetchItem, resolveItemId, extractItemId, parseSold } = require('./api_collect');
-const REAL_ID = '6aacab557116f00001c2fca9';
-const REAL_SHORT = 'https://xhslink.com/m/F3UDAwqnJW';
+
+/*
+这两个是**打真实接口**用的，所以需要一个真实存在的商品。
+用环境变量传自己的商品 ID，别把具体商品写死在仓库里：
+
+  XHS_TEST_ITEM_ID=6a...  XHS_TEST_ITEM_SHORT=https://xhslink.com/m/xxx  node test_api_collect.js
+
+没给就用一个占位 ID —— 相关用例会失败并提示怎么配，
+这比在公开仓库里暴露自己的商品链接安全。
+*/
+const REAL_ID = process.env.XHS_TEST_ITEM_ID || '6a0000000000000000000000';
+const REAL_SHORT = process.env.XHS_TEST_ITEM_SHORT || '';
+const CONFIGURED = !!process.env.XHS_TEST_ITEM_ID;
 
 let pass = 0, fail = 0;
 const t = (name, fn) => {
@@ -26,8 +37,10 @@ const tt = async (name, fn) => {
   t('空字符串返回 null', () => assert.equal(extractItemId(''), null));
   t('null 返回 null', () => assert.equal(extractItemId(null), null));
   t('不误抓短链字母当ID', () => {
-    const r = extractItemId('https://xhslink.com/m/F3UDAwqnJW');
+    // 用一个随便编的短链：只验证「短链里的字母不该被当成商品ID」
+    const r = extractItemId('https://xhslink.com/m/AbCdEfGh12');
     assert.notEqual(r, REAL_ID, '短链里不该解出商品ID');
+    assert.equal(r, null, '短链里不该解出任何ID，实际 ' + r);
   });
 
   console.log('\n[销量数字解析]');
@@ -38,6 +51,7 @@ const tt = async (name, fn) => {
 
   console.log('\n[短链解析 - 需联网]');
   await tt('短链能解出真实 item_id', async () => {
+    assert.ok(REAL_SHORT, '没配 XHS_TEST_ITEM_SHORT，跳过（短链解析需要真实短链）');
     const id = await resolveItemId(REAL_SHORT);
     assert.equal(id, REAL_ID, '解出 ' + id);
   });

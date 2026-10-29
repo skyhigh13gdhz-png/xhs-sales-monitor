@@ -1,0 +1,30 @@
+{
+  "name": "xhs-sales-monitor",
+  "version": "1.0.0",
+  "description": "小红书对标商品销量与到手价监控：定时采集快照、计算增量、绘制趋势与价格阶梯图",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "bash run_tests.sh",
+    "test:core": "bash run_tests.sh core",
+    "test:api": "bash run_tests.sh api",
+    "test:ui": "bash run_tests.sh ui",
+    "login": "node auto_login.js",
+    "login:check": "node xhs_login.js check"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "playwright": "^1.40.0"
+  },
+  "keywords": [
+    "xiaohongshu",
+    "小红书",
+    "sales-monitor",
+    "competitor-analysis",
+    "price-tracking"
+  ],
+  "license": "MIT",
+  "private": false
+}

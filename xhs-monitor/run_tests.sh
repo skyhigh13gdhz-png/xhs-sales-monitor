@@ -12,8 +12,25 @@
 set -u
 cd "$(dirname "$0")"
 
-NODE=${NODE:-/Users/weizhenliang/.workbuddy/binaries/node/versions/22.22.2-6/bin/node}
-export NODE_PATH=/Users/weizhenliang/.workbuddy/binaries/node/workspace/node_modules
+NODE=${NODE:-}
+if [ -z "$NODE" ]; then
+  if [ -x "$HOME/.workbuddy/binaries/node/versions/22.22.2-6/bin/node" ]; then
+    NODE="$HOME/.workbuddy/binaries/node/versions/22.22.2-6/bin/node"
+  elif command -v node >/dev/null 2>&1; then
+    NODE="$(command -v node)"
+  else
+    echo "找不到 node。请安装 Node.js，或用 NODE=... 指定可执行文件。" >&2
+    exit 1
+  fi
+fi
+
+# playwright 只能通过 NODE_PATH 引入（它不在项目本地 node_modules 里）
+DEPS="${XHS_DEPS_DIR:-$HOME/.workbuddy/binaries/node/workspace/node_modules}"
+if [ -d "$DEPS" ]; then
+  export NODE_PATH="$DEPS"
+  BROWSERS="${XHS_BROWSERS_DIR:-$HOME/.workbuddy/binaries/node/workspace/browsers}"
+  [ -d "$BROWSERS" ] && export PLAYWRIGHT_BROWSERS_PATH="$BROWSERS"
+fi
 
 DATA=data/snapshots.json
 SCHED=data/schedule.json

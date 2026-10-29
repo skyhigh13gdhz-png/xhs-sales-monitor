@@ -8,9 +8,9 @@
 ## 启动（一条命令）
 
 ```bash
-cd /Users/weizhenliang/WorkBuddy/2026-10-19-11-31-05/xhs-monitor
-NODE_PATH=/Users/weizhenliang/.workbuddy/binaries/node/workspace/node_modules \
-PLAYWRIGHT_BROWSERS_PATH=/Users/weizhenliang/.workbuddy/binaries/node/workspace/browsers \
+cd xhs-monitor
+NODE_PATH=~/.workbuddy/binaries/node/workspace/node_modules \
+PLAYWRIGHT_BROWSERS_PATH=~/.workbuddy/binaries/node/workspace/browsers \
 node server.js
 ```
 
@@ -603,24 +603,24 @@ xhs-monitor/
 ├── xhs_monitor.js      命令行完整版
 ├── dashboard.js        静态看板渲染
 ├── template.html       静态看板样式
-├── test_core.js        核心逻辑测试（23 项）
-├── test_groups.js      分组逻辑测试（19 项）
-├── test_api_collect.js 免登录接口测试（24 项）
-├── test_scheduler.js   定时逻辑 + 可信时段测试（33 项）
-├── test_schedule_api.js 调度接口测试（11 项）
-├── test_api.js         HTTP 接口测试（20 项）
-├── test_ui_charts.js   排行分层 + 多折线图（16 项）
-├── test_ui_today.js    今日增量在 KPI/表格/排行里的一致性（8 项）
-├── test_ui_price.js    价格阶梯图（9 项，自包含）
-├── restore_data.js     数据恢复脚本
-├── data/
-│   ├── snapshots.json  商品档案 + 历史快照（真实数据）
+├── xhs_login.js        登录态获取 / 体检（check 模式）
+├── verify_cron.js      定时采集验证（观察某槽位是否触发）
+├── run_tests.sh        统一测试入口（自动备份真实数据 + 污染校验）
+├── 启动监控.command     双击启动（macOS）
+├── docs/
+│   └── 数据口径与回退机制.md   数字为什么会掉、怎么判、代码在哪
+├── test_*.js           35 个测试文件，共 800+ 项断言
+├── data/               运行时数据（不入库，见 .gitignore）
+│   ├── snapshots.json  商品档案 + 历史快照
 │   ├── schedule.json   定时配置
 │   └── auto-log.json   自动采集执行记录
-└── auth/
-    └── storage-state.json  登录态（可选，勿外传）
+└── auth/               登录态（不入库，等同凭据）
+    └── storage-state.json
 ```
 
+> **测试**：共 35 个测试文件。跑测试必须用 `bash run_tests.sh`，
+> 它会先备份真实数据，跑完校验有没有被测试污染（单跑某个测试文件不做这层保护）。
+>
 > **测试安全**：所有测试通过 `XHS_DB` 环境变量指向独立临时库，
 > 不会读写 `data/snapshots.json`。切勿在测试里直接操作真实数据文件。
 
@@ -628,12 +628,26 @@ xhs-monitor/
 
 ## 环境依赖
 
-- Node.js 22（已随WorkBuddy 提供）
-- playwright + chromium 内核（已装在 `~/.workbuddy/binaries/node/workspace/`）
+- Node.js 22+（本机随 WorkBuddy 提供；用系统 `node` 也可以）
+- playwright + chromium 内核（装在 `~/.workbuddy/binaries/node/workspace/`）
 
-运行脚本时需要带上环境变量：
+脚本会自动探测这些路径，找不到时用下面这些环境变量指定：
+
+| 变量 | 作用 | 默认值 |
+|---|---|---|
+| `XHS_NODE` | node 可执行文件 | 受管版本 → 系统 `node` |
+| `XHS_DEPS_DIR` | playwright 等依赖所在目录 | `~/.workbuddy/binaries/node/workspace/node_modules` |
+| `XHS_BROWSERS_PATH` | chromium 内核目录 | `~/.workbuddy/binaries/node/workspace/browsers` |
+| `XHS_TEST_ITEM_ID` | 打真实接口的测试用哪个商品（24 位 hex） | 无（相关用例会提示） |
+| `XHS_TEST_ITEM_SHORT` | 同上，用短链形式 | 无 |
 
 ```bash
-export NODE_PATH=/Users/weizhenliang/.workbuddy/binaries/node/workspace/node_modules
-export PLAYWRIGHT_BROWSERS_PATH=/Users/weizhenliang/.workbuddy/binaries/node/workspace/browsers
+# 手动跑（启动监控.command 会自动设好）
+export NODE_PATH=~/.workbuddy/binaries/node/workspace/node_modules
+export PLAYWRIGHT_BROWSERS_PATH=~/.workbuddy/binaries/node/workspace/browsers
+node server.js
+
+# 跑打真实接口的测试
+XHS_TEST_ITEM_ID=6a... XHS_TEST_ITEM_SHORT=https://xhslink.com/m/xxx \
+  node test_api_collect.js
 ```

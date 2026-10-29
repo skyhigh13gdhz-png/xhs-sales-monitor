@@ -1,9 +1,16 @@
 const fs = require('fs');
 const path = require('path');
-const BASE = '/Users/weizhenliang/WorkBuddy/2026-10-19-11-31-05/xhs-monitor';
+// 相对本文件定位，别写死绝对路径（换台机器就找不到目录了）
+const BASE = __dirname;
 const DB = path.join(BASE, 'data', 'snapshots.json');
 const LOG = path.join(BASE, 'data', 'auto-log.json');
-const TARGET = fs.readFileSync('/tmp/test_slot.txt', 'utf8').trim();
+// 要测的槽位可以命令行传，也可以写在 /tmp/test_slot.txt
+const SLOT_FILE = '/tmp/test_slot.txt';
+const TARGET = process.argv[2] || (fs.existsSync(SLOT_FILE) ? fs.readFileSync(SLOT_FILE, 'utf8').trim() : '');
+if (!TARGET) {
+  console.error(`用法: node verify_cron.js HH:MM   （或把槽位写进 ${SLOT_FILE}）`);
+  process.exit(1);
+}
 
 function snapCount() {
   try { return JSON.parse(fs.readFileSync(DB, 'utf8')).snapshots.length; } catch (_) { return -1; }

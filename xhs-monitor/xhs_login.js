@@ -3,7 +3,8 @@ const fs = require('fs');
 const path = require('path');
 
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36';
-const BASE = '/Users/weizhenliang/WorkBuddy/2026-10-19-11-31-05/xhs-monitor';
+// 相对本文件定位，别写死绝对路径（换台机器就找不到目录了）
+const BASE = __dirname;
 const AUTH_DIR = path.join(BASE, 'auth');
 const STATE = path.join(AUTH_DIR, 'storage-state.json');
 
