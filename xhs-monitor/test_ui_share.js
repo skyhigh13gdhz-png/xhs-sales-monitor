@@ -33,7 +33,7 @@ async function startServer() {
 }
 async function stopServer() { if (server) { try { server.kill(); } catch (_) {} } }
 
-const RAW = '【小红书】猫咪磁吸风铃冰箱贴 😆 nvJRp7r2K6 😆 https://xhslink.com/m/4T71eJQIwpB 点击链接或者复制本条信息打开【小红书app】查看 CZ6526';
+const RAW = '【小红书】猫咪磁吸风铃冰箱贴 😆 nvJRp7r2K6 😆 https://xhslink.com/m/ExAmPlE12 点击链接或者复制本条信息打开【小红书app】查看 CZ6526';
 
 let pass = 0, fail = 0;
 async function check(name, fn) {
@@ -86,7 +86,7 @@ async function check(name, fn) {
     await p.waitForTimeout(350);
     const hint = (await p.locator('#aParse').innerText()).trim();
     if (!/已识别链接/.test(hint)) throw new Error('提示是：' + hint);
-    if (!/xhslink\.com\/m\/4T71eJQIwpB/.test(hint)) throw new Error('没显示链接：' + hint);
+    if (!/xhslink\.com\/m\/ExAmPlE12/.test(hint)) throw new Error('没显示链接：' + hint);
     return hint.replace(/\s+/g, ' ');
   });
 
@@ -124,7 +124,7 @@ async function check(name, fn) {
   await check('列表里出现该商品，名称来自接口不是口令码', async () => {
     await p.waitForTimeout(1200);
     const st = await (await fetch(BASE + '/api/state')).json();
-    const prod = st.products.find(x => x.url === 'https://xhslink.com/m/4T71eJQIwpB');
+    const prod = st.products.find(x => x.url === 'https://xhslink.com/m/ExAmPlE12');
     if (!prod) throw new Error('没找到该商品');
     if (/nvJRp|CZ6526/.test(prod.name)) throw new Error('名称里带口令码：' + prod.name);
     if (!prod.shop) throw new Error('店铺没识别出来');

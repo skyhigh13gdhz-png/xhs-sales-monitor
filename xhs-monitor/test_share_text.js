@@ -12,10 +12,10 @@ function t(name, fn) {
 }
 
 console.log('\n[真实分享文案]');
-const REAL = '【小红书】猫咪磁吸风铃冰箱贴 😆 nvJRp7r2K6 😆 https://xhslink.com/m/4T71eJQIwpB 点击链接或者复制本条信息打开【小红书app】查看 CZ6526';
+const REAL = '【小红书】猫咪磁吸风铃冰箱贴 😆 nvJRp7r2K6 😆 https://xhslink.com/m/ExAmPlE12 点击链接或者复制本条信息打开【小红书app】查看 CZ6526';
 
 t('能抠出短链', () => {
-  assert.equal(parseShareText(REAL).url, 'https://xhslink.com/m/4T71eJQIwpB');
+  assert.equal(parseShareText(REAL).url, 'https://xhslink.com/m/ExAmPlE12');
 });
 t('能从文案还原商品名', () => {
   assert.equal(parseShareText(REAL).title, '猫咪磁吸风铃冰箱贴');
@@ -58,7 +58,7 @@ t('中文在链接前面', () => {
 
 console.log('\n[其他常见格式]');
 t('标题 + 链接', () => {
-  const r = parseShareText('猫咪磁吸风铃冰箱贴 https://xhslink.com/m/4T71eJQIwpB');
+  const r = parseShareText('猫咪磁吸风铃冰箱贴 https://xhslink.com/m/ExAmPlE12');
   assert.equal(r.title, '猫咪磁吸风铃冰箱贴');
 });
 t('多行文本（标题在上、链接在下）', () => {
