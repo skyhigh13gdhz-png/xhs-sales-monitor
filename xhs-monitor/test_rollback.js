@@ -27,6 +27,22 @@ const emptyDb = () => ({ products: [], snapshots: [], groups: [] });
 // 本地时间构造，和 startOfDay 口径一致
 const at = (d, h, mi) => new Date(2026, 9, d, h || 0, mi || 0, 0).toISOString();
 
+/*
+夹具日期是写死的（2026-10-20 / 10-21）。所有跟"今天"有关的断言都显式传了
+基准时刻 REF（10/21 中午），所以夹具过期也不会影响结果。
+
+但仍然加一道守卫：夹具日期离今天太远时提醒一句。
+不是为了让它红（那会让"今天跑不了"变成常态），
+而是**别再等到某天突然红 3 项才去查**——那正是这次发生的事：
+10/21 写好的测试，10/29 再跑就红了 3 项，还差点被误判成"整理代码改坏了"。
+*/
+const FIXTURE_DAY = new Date(2026, 9, 21).getTime();
+const daysAgo = Math.round((Date.now() - FIXTURE_DAY) / 864e5);
+if (daysAgo > 30) {
+  console.log(`  ⓘ 夹具日期是 2026-10-21（${daysAgo} 天前）。`
+    + '断言用的是固定基准时刻，不影响结果；若要重写用例可同步更新 at() 与 REF。');
+}
+
 console.log('\n[回退分级]');
 {
   const c1 = store.classifyDrop(1857, 1778);        // 实测：降 79，约 4.3%
@@ -218,6 +234,10 @@ console.log('\n[今日基线：昨夜最后 vs 今早首采，取低的那个]')
 
 console.log('\n[stats 把吸收量带到界面上]');
 {
+  // 基准时刻固定在夹具的"今天"（10/21 中午）——
+  // stats 默认用 Date.now() 当基准，夹具数据是固定日期的，
+  // 过了那天这些数据就成了历史，todayCut/todayDelta 会全变 null。
+  const REF = new Date(2026, 9, 21, 12).getTime();
   const db = emptyDb();
   db.products.push({ id: 'p1', name: 'A', shop: 'S', url: 'u', group: '' });
   db.snapshots.push(
@@ -225,7 +245,7 @@ console.log('\n[stats 把吸收量带到界面上]');
     { id: 'b', productId: 'p1', ts: at(21, 7, 31), soldTotal: 993, ok: true },
     { id: 'c', productId: 'p1', ts: at(21, 12, 0), soldTotal: 998, ok: true }
   );
-  const st = store.stats(db, 30).p1;
+  const st = store.stats(db, 30, REF).p1;
   t('todayCut 带出来了', st.todayCut === 7, st.todayCut);
   t('todayBase 带出来了', st.todayBase === 993, st.todayBase);
   t('todayDelta 与 todayBaseline 一致', st.todayDelta === 5, st.todayDelta);
@@ -236,8 +256,8 @@ console.log('\n[stats 把吸收量带到界面上]');
     { id: 'a', productId: 'p2', ts: at(20, 23, 49), soldTotal: 1000, ok: true },
     { id: 'b', productId: 'p2', ts: at(21, 12, 0), soldTotal: 1050, ok: true }
   );
-  t('没有日切修正时 todayCut = 0', store.stats(db2, 30).p2.todayCut === 0,
-    store.stats(db2, 30).p2.todayCut);
+  t('没有日切修正时 todayCut = 0', store.stats(db2, 30, REF).p2.todayCut === 0,
+    store.stats(db2, 30, REF).p2.todayCut);
 }
 
 console.log('\n[边界情况]');

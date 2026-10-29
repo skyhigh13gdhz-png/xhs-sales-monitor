@@ -155,13 +155,21 @@ const press = p => p.waitForTimeout(200);
   });
 
   console.log('\n[采集结束]');
+  // 等待上限按**商品数**算，别写死。
+  // 采集是串行的：每个商品之间固定隔 3 秒（collect.js 的 delay），
+  // 所以商品越多跑得越久。写死 45 秒的话，商品一多测试就假红
+  // （真实遇到过：19 个商品时 19×3 + 请求耗时 > 45 秒，两条断言变红）。
+  const stateNow = await (await fetch(BASE + '/api/state')).json();
+  const nProducts = (stateNow.products || []).length || 1;
+  const waitMs = Math.max(60000, 8000 + nProducts * 5000);
   await check('顶栏按钮恢复「采集管理」', async () => {
-    for (let i = 0; i < 90; i++) {
+    for (let waited = 0; waited < waitMs; waited += 500) {
       await p.waitForTimeout(500);
       const t = (await p.locator('#btnCollectMgr').innerText()).trim();
       if (t === '采集管理') return t;
     }
-    throw new Error('按钮仍是：' + await p.locator('#btnCollectMgr').innerText());
+    throw new Error('按钮仍是：' + await p.locator('#btnCollectMgr').innerText()
+      + `（等了 ${Math.round(waitMs / 1000)} 秒还没结束）`);
   });
   await check('完成提示指明去哪看明细', async () => {
     const t = (await p.locator('#toast').innerText().catch(() => '')).replace(/\s+/g, ' ').trim();

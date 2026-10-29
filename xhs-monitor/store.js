@@ -660,13 +660,20 @@ function coarseInfo(snap) {
   return { approx: true, step };
 }
 
-function stats(db, days) {
+/*
+refTs：算「今天」的基准时刻（毫秒）。
+不传 = 用当前时间（正常跑服务时就是这个意思）。
+传固定值 = 给测试用 —— 测试夹具的数据是固定日期的，
+若跟着"今天"走，过了那天夹具就成了历史数据，todayCut/todayDelta 全变 null。
+（这个坑真实发生过：夹具写死 10/21，10/29 再跑就红了 3 项。）
+*/
+function stats(db, days, refTs) {
   const since = Date.now() - days * 864e5;
   const out = {};
   for (const p of db.products) {
     if (p.archived) continue;
     const d = computeDelta(db, p.id);
-    const bl = todayBaseline(db, p.id);
+    const bl = todayBaseline(db, p.id, refTs);
     const series = soldSeries(db, p.id);
     const recent = series.filter(s => new Date(s.ts).getTime() >= since);
     const first = recent.length ? recent[0].soldTotal : null;
@@ -678,7 +685,7 @@ function stats(db, days) {
     out[p.id] = {
       name: p.name, shop: p.shop, url: p.url, note: p.note,
       ...d,
-      todayDelta: todayDelta(db, p.id),
+      todayDelta: todayDelta(db, p.id, refTs),
       // 加购只认最新的一条，旧读数不代表现在
       cartCount: cart.cart,
       cartTs: cart.ts,
