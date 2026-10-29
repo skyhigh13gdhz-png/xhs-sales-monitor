@@ -51,6 +51,15 @@ CORE="test_core test_groups_explicit test_groups test_price test_scheduler test_
 API="test_api test_schedule_api test_share_api"
 UI="test_ui_charts test_ui_price test_ui_shopgroup test_ui_dissolve test_ui_manage test_ui_collectmgr test_ui_lastnext test_ui_layout test_ui_overview test_ui_today test_ui_todayhot test_ui_stale test_ui_daycut test_ui_shopdelta test_ui_share test_ui_period test_ui_cartsort test_ui_stalemark test_ui_nocart"
 
+# test_share_api / test_ui_share 里有几个用例要访问**真实短链与真实商品**。
+# 真实短链不该写进仓库（会暴露具体商品），所以这两个测试默认跳过那几条用例。
+# 想全跑：export XHS_TEST_SHORT=https://xhslink.com/m/xxxx
+if [ -z "${XHS_TEST_SHORT:-}" ]; then
+  echo "ⓘ test_share_api / test_ui_share 里依赖真实短链的用例将跳过"
+  echo "  （想全跑：export XHS_TEST_SHORT=<一个真实短链>）"
+  echo ""
+fi
+
 case "${1:-all}" in
   core) LIST=$CORE ;;
   api)  LIST=$API ;;

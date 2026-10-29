@@ -33,12 +33,31 @@ async function startServer() {
 }
 async function stopServer() { if (server) { try { server.kill(); } catch (_) {} } }
 
-const RAW = '【小红书】猫咪磁吸风铃冰箱贴 😆 nvJRp7r2K6 😆 https://xhslink.com/m/ExAmPlE12 点击链接或者复制本条信息打开【小红书app】查看 CZ6526';
+/*
+要访问真实短链与真实商品，所以短链从环境变量传，别写死在仓库里：
+  XHS_TEST_SHORT=https://xhslink.com/m/xxx node test_ui_share.js
 
-let pass = 0, fail = 0;
+没配 SHORT 时用占位短链：
+  - 纯前端的用例（解析提示、输入校验）照跑，验证的是链接解析逻辑
+  - 要联网添加商品的那几个用例跳过并说明原因
+*/
+const SHORT = process.env.XHS_TEST_SHORT || '';
+const SHORT_TOKEN = SHORT || 'example12';   // 占位符，同样是 xhslink 短链格式
+const RAW = `【小红书】猫咪磁吸风铃冰箱贴 😆 nvJRp7r2K6 😆 https://xhslink.com/m/${SHORT_TOKEN} 点击链接或者复制本条信息打开【小红书app】查看 CZ6526`;
+
+let pass = 0, fail = 0, skip = 0;
+/*
+「跳过」不等于「失败」。
+需要真实短链的用例，没配 XHS_TEST_SHORT 时应该跳过 —— 
+之前用 throw 表达，结果被 check() 当成失败，测试假红。
+*/
+const SKIP = msg => { const e = new Error(msg); e.isSkip = true; throw e; };
 async function check(name, fn) {
   try { const info = await fn(); console.log('  ✓ ' + name + (info ? '  → ' + info : '')); pass++; }
-  catch (e) { console.log('  ✗ ' + name + '\n      ' + e.message); fail++; }
+  catch (e) {
+    if (e.isSkip) { console.log('  ⓘ 跳过：' + name + '  → ' + e.message); skip++; return; }
+    console.log('  ✗ ' + name + '\n      ' + e.message); fail++;
+  }
 }
 
 (async () => {
@@ -86,7 +105,7 @@ async function check(name, fn) {
     await p.waitForTimeout(350);
     const hint = (await p.locator('#aParse').innerText()).trim();
     if (!/已识别链接/.test(hint)) throw new Error('提示是：' + hint);
-    if (!/xhslink\.com\/m\/ExAmPlE12/.test(hint)) throw new Error('没显示链接：' + hint);
+    if (!hint.includes('xhslink.com/m/' + SHORT_TOKEN)) throw new Error('没显示链接：' + hint);
     return hint.replace(/\s+/g, ' ');
   });
 
@@ -109,6 +128,14 @@ async function check(name, fn) {
   });
 
   await check('填入真实文案并添加成功', async () => {
+    if (!SHORT) SKIP('需要真实短链，设 XHS_TEST_SHORT 后再跑');
+    /*
+    重新打开弹窗再填。
+    上一条用例故意点了「添加」来验证"没链接时被拦"，
+    那次点击已经把弹窗带进了"提交过一次"的状态，
+    复用同一个弹窗再点会失败（弹窗一直不关）。
+    */
+    await openAddDialog();
     await p.locator('#aUrl').fill(RAW);
     await p.waitForTimeout(300);
     await p.locator('#aOk').click();
@@ -122,9 +149,10 @@ async function check(name, fn) {
   });
 
   await check('列表里出现该商品，名称来自接口不是口令码', async () => {
+    if (!SHORT) SKIP('需要真实短链，设 XHS_TEST_SHORT 后再跑');
     await p.waitForTimeout(1200);
     const st = await (await fetch(BASE + '/api/state')).json();
-    const prod = st.products.find(x => x.url === 'https://xhslink.com/m/ExAmPlE12');
+    const prod = st.products.find(x => x.url === SHORT);
     if (!prod) throw new Error('没找到该商品');
     if (/nvJRp|CZ6526/.test(prod.name)) throw new Error('名称里带口令码：' + prod.name);
     if (!prod.shop) throw new Error('店铺没识别出来');
@@ -132,6 +160,7 @@ async function check(name, fn) {
   });
 
   await check('重复添加同一段文案 → 明确提示已存在', async () => {
+    if (!SHORT) SKIP('需要真实短链，设 XHS_TEST_SHORT 后再跑');
     await openAddDialog();
     await p.locator('#aUrl').fill(RAW);
     await p.locator('#aOk').click();
@@ -143,7 +172,7 @@ async function check(name, fn) {
 
   await b.close();
   console.log('\nJS 错误: ' + (errors.length ? errors.join('; ') : '无'));
-  console.log(`结果: ${pass} 通过, ${fail} 失败\n`);
+  console.log(`结果: ${pass} 通过, ${fail} 失败${skip ? `，${skip} 跳过` : ''}\n`);
   await stopServer();
   process.exit(fail || errors.length ? 1 : 0);
 })().catch(async e => {
